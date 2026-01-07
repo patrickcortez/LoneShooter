@@ -3,7 +3,7 @@
     "Settings": {
         "Fullscreen": false,
         "Console": true,
-        "": false,
+        "VSync": false,
         "Language": "English"
     }
 }

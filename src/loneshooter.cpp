@@ -343,6 +343,110 @@ void InitTrigTables() {
     }
 }
 
+// Global GDI Objects
+HBRUSH hBrushMapBG;
+HBRUSH hBrushWall1; // RGB(0, 80, 0)
+HBRUSH hBrushWall2; // RGB(100, 60, 30)
+HBRUSH hBrushWall3; // RGB(40, 60, 30)
+HBRUSH hBrushPlayer; // RGB(0, 255, 0)
+HBRUSH hBrushSpire; // RGB(255, 165, 0)
+HBRUSH hBrushMedkit; // RGB(0, 150, 255)
+HBRUSH hBrushBlack; 
+HBRUSH hBrushDarkGray;
+HBRUSH hBrushRed;
+HBRUSH hBrushGreen;
+HBRUSH hBrushBlue;
+HBRUSH hBrushWhite;
+HBRUSH hBrushHollow;
+HBRUSH hBrushDarkRed;
+HBRUSH hBrushGold;
+HBRUSH hBrushMagenta;
+HBRUSH hBrushPurple;
+
+HPEN hPenPlayer; // RGB(0, 255, 0)
+HPEN hPenRange; // RGB(0, 255, 255) DOT
+HPEN hPenFOV; // RGB(0, 200, 0)
+HPEN hPenRed; 
+HPEN hPenLaser; // RGB(255, 0, 0) Width 5
+HPEN hPenWhite; // RGB(255, 255, 255) Width 2
+
+HFONT hFontDebug;
+HFONT hFontHUD;
+HFONT hFontBig;
+HFONT hFontSmall;
+HFONT hFontMedium;
+HFONT hFontTitle;
+
+void InitGraphics() {
+    hBrushMapBG = CreateSolidBrush(RGB(20, 20, 20));
+    hBrushWall1 = CreateSolidBrush(RGB(0, 80, 0));
+    hBrushWall2 = CreateSolidBrush(RGB(100, 60, 30));
+    hBrushWall3 = CreateSolidBrush(RGB(40, 60, 30));
+    hBrushPlayer = CreateSolidBrush(RGB(0, 255, 0));
+    hBrushSpire = CreateSolidBrush(RGB(255, 165, 0));
+    hBrushMedkit = CreateSolidBrush(RGB(0, 150, 255));
+    
+    hBrushBlack = CreateSolidBrush(RGB(0, 0, 0));
+    hBrushDarkGray = CreateSolidBrush(RGB(40, 40, 40));
+    hBrushRed = CreateSolidBrush(RGB(200, 0, 0));
+    hBrushGreen = CreateSolidBrush(RGB(0, 180, 0));
+    hBrushBlue = CreateSolidBrush(RGB(0, 0, 255));
+    hBrushWhite = CreateSolidBrush(RGB(255, 255, 255));
+    hBrushHollow = (HBRUSH)GetStockObject(HOLLOW_BRUSH);
+    hBrushDarkRed = CreateSolidBrush(RGB(50, 0, 0));
+    hBrushGold = CreateSolidBrush(RGB(150, 100, 0));
+    hBrushMagenta = CreateSolidBrush(RGB(200, 0, 200));
+    hBrushPurple = CreateSolidBrush(RGB(148, 0, 211));
+
+    hPenPlayer = CreatePen(PS_SOLID, 2, RGB(0, 255, 0));
+    hPenRange = CreatePen(PS_DOT, 1, RGB(0, 255, 255));
+    hPenFOV = CreatePen(PS_SOLID, 1, RGB(0, 200, 0));
+    hPenRed = CreatePen(PS_SOLID, 1, RGB(255, 0, 0));
+    hPenLaser = CreatePen(PS_SOLID, 5, RGB(255, 0, 0));
+    hPenWhite = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+
+    hFontDebug = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Consolas");
+    hFontHUD = CreateFontW(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    hFontBig = CreateFontW(72, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    hFontSmall = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    hFontMedium = CreateFontW(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    hFontTitle = CreateFontW(48, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+}
+
+void CleanupGraphics() {
+    DeleteObject(hBrushMapBG);
+    DeleteObject(hBrushWall1);
+    DeleteObject(hBrushWall2);
+    DeleteObject(hBrushWall3);
+    DeleteObject(hBrushPlayer);
+    DeleteObject(hBrushSpire);
+    DeleteObject(hBrushMedkit);
+    DeleteObject(hBrushBlack);
+    DeleteObject(hBrushDarkGray);
+    DeleteObject(hBrushRed);
+    DeleteObject(hBrushGreen);
+    DeleteObject(hBrushBlue);
+    DeleteObject(hBrushWhite);
+    DeleteObject(hBrushDarkRed);
+    DeleteObject(hBrushGold);
+    DeleteObject(hBrushMagenta);
+    DeleteObject(hBrushPurple);
+    
+    DeleteObject(hPenPlayer);
+    DeleteObject(hPenRange);
+    DeleteObject(hPenFOV);
+    DeleteObject(hPenRed);
+    DeleteObject(hPenLaser);
+    DeleteObject(hPenWhite);
+
+    DeleteObject(hFontDebug);
+    DeleteObject(hFontHUD);
+    DeleteObject(hFontBig);
+    DeleteObject(hFontSmall);
+    DeleteObject(hFontMedium);
+    DeleteObject(hFontTitle);
+}
+
 inline float FastSin(float angle) {
     while (angle < 0) angle += 2.0f * PI;
     while (angle >= 2.0f * PI) angle -= 2.0f * PI;
@@ -555,6 +659,7 @@ struct Rocket {
     float targetX, targetY; // Only used for enemy homing rockets
     float startX, startY;
     float maxRange;
+    float safetyTimer;
 };
 
 struct RocketTrail {
@@ -714,6 +819,22 @@ int playerSpriteW = 0, playerSpriteH = 0;
 
 DWORD* compassPixels = nullptr;
 int compassW = 0, compassH = 0;
+
+bool preGamePhase = true;
+bool cutsceneActive = false;
+int cutsceneState = 0;
+float cutsceneTimer = 0;
+float cutsceneEnemyX = 0, cutsceneEnemyY = 0;
+float percyX = 0, percyY = 0;
+bool percyDead = false;
+int percySpriteState = 0;
+
+DWORD* percyPixels = nullptr;
+int percyW = 0, percyH = 0;
+DWORD* percyHurtPixels = nullptr;
+int percyHurtW = 0, percyHurtH = 0;
+DWORD* percyDeathPixels = nullptr;
+int percyDeathW = 0, percyDeathH = 0;
 
 // Prototypes
 void LoadModelCurrentDir(const wchar_t* filename, float x, float z);
@@ -1122,6 +1243,18 @@ void TryLoadAssets() {
     swprintf(path, MAX_PATH, L"%ls\\assets\\UI\\compass.bmp", exePath);
     compassPixels = LoadBMPPixels(path, &compassW, &compassH);
     if (!compassPixels) { missingAssets.push_back(L"compass.bmp"); if (errorPixels) { compassPixels = errorPixels; compassW = errorW; compassH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\npcs\\brethren.bmp", exePath);
+    percyPixels = LoadBMPPixels(path, &percyW, &percyH);
+    if (!percyPixels) { missingAssets.push_back(L"brethren.bmp"); if (errorPixels) { percyPixels = errorPixels; percyW = errorW; percyH = errorH; } }
+    
+    swprintf(path, MAX_PATH, L"%ls\\assets\\npcs\\brethren_hurt.bmp", exePath);
+    percyHurtPixels = LoadBMPPixels(path, &percyHurtW, &percyHurtH);
+    if (!percyHurtPixels) { percyHurtPixels = percyPixels; percyHurtW = percyW; percyHurtH = percyH; }
+    
+    swprintf(path, MAX_PATH, L"%ls\\assets\\npcs\\brethren_death.bmp", exePath);
+    percyDeathPixels = LoadBMPPixels(path, &percyDeathW, &percyDeathH);
+    if (!percyDeathPixels) { percyDeathPixels = percyPixels; percyDeathW = percyW; percyDeathH = percyH; }
 
     swprintf(loadStatus, 256, L"G:%ls S:%ls A:%ls H:%ls D:%ls F:%ls M:%ls C:%ls", gunPixels?L"OK":L"X", spirePixels?L"OK":L"X", spireAwakePixels?L"OK":L"X", spireHurtPixels?L"OK":L"X", spireDeathPixels?L"OK":L"X", fireballPixels?L"OK":L"X", medkitPixels?L"OK":L"X", clawDormantPixels?L"OK":L"X");
     
@@ -2037,6 +2170,18 @@ void RenderSprites() {
         }
     }
     
+    if (preGamePhase || cutsceneActive) {
+        for (auto& npc : NPCSystem::npcs) {
+            if (!npc.active) continue;
+            float dx = npc.x - player.x;
+            float dy = npc.y - player.y;
+            float dist = sqrtf(dx*dx + dy*dy);
+            if (dist < 50.0f && dist > 0.5f) {
+                allSprites.push_back({npc.x, npc.y, dist, 20, 1.5f, percySpriteState, npc.isTalking, 0.0f, false});
+            }
+        }
+    }
+    
     if (spectatorMode) {
         float pdx = savedPlayerX - player.x; // player.x is now camera/spectator pos
         float pdy = savedPlayerY - player.y;
@@ -2157,6 +2302,14 @@ void RenderSprites() {
             if (playerSpritePixels) {
                  RenderSprite(playerSpritePixels, playerSpriteW, playerSpriteH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
             }
+        } else if (sp.type == 20) {
+            if (sp.variant == 2 && percyDeathPixels) {
+                RenderSprite(percyDeathPixels, percyDeathW, percyDeathH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+            } else if (sp.variant == 1 && percyHurtPixels) {
+                RenderSprite(percyHurtPixels, percyHurtW, percyHurtH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+            } else if (percyPixels) {
+                RenderSprite(percyPixels, percyW, percyH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+            }
         }
     }
 }
@@ -2273,6 +2426,25 @@ void UpdateEnemies(float deltaTime) {
                      Enemy p;
                      p.x = enemy.x + (rand()%10 - 5);
                      p.y = enemy.y + (rand()%10 - 5);
+                     
+                     // Boundary Check
+                     if (p.x < 5.0f) p.x = 5.0f;
+                     if (p.x > MAP_WIDTH - 5.0f) p.x = MAP_WIDTH - 5.0f;
+                     if (p.y < 5.0f) p.y = 5.0f;
+                     if (p.y > MAP_HEIGHT - 5.0f) p.y = MAP_HEIGHT - 5.0f;
+                     
+                     // Spire Check
+                     float spdx = p.x - 32.0f;
+                     float spdy = p.y - 32.0f;
+                     if (sqrtf(spdx*spdx + spdy*spdy) < 6.0f) {
+                         float ang = atan2f(spdy, spdx);
+                         p.x = 32.0f + cosf(ang) * 6.5f;
+                         p.y = 32.0f + sinf(ang) * 6.5f;
+                     }
+                     
+                     // Wall Check - simple skip if invalid after adjustment
+                     if (worldMap[(int)p.x][(int)p.y] != 0) continue;
+
                      p.active = true;
                      p.health = 4;
                      p.isPhalanx = true;
@@ -2380,20 +2552,50 @@ void UpdateEnemies(float deltaTime) {
                          Enemy m;
                          m.x = enemy.x + (rand()%16 - 8);
                          m.y = enemy.y + (rand()%16 - 8);
+                         
+                         // Safety Checks
+                         if (m.x < 5.0f) m.x = 5.0f;
+                         if (m.x > MAP_WIDTH - 5.0f) m.x = MAP_WIDTH - 5.0f;
+                         if (m.y < 5.0f) m.y = 5.0f;
+                         if (m.y > MAP_HEIGHT - 5.0f) m.y = MAP_HEIGHT - 5.0f;
+                         
+                         float spdx = m.x - 32.0f;
+                         float spdy = m.y - 32.0f;
+                         if (sqrtf(spdx*spdx + spdy*spdy) < 6.0f) {
+                              float ang = atan2f(spdy, spdx);
+                              m.x = 32.0f + cosf(ang) * 6.5f;
+                              m.y = 32.0f + sinf(ang) * 6.5f;
+                         }
+
                          m.active = true;
                          m.health = 4;
                          m.speed = 4.0f + ((rand()%10)/10.0f);
-                         if (m.x > 0 && m.x < MAP_WIDTH && m.y > 0 && m.y < MAP_HEIGHT) enemies.push_back(m);
+                         if (worldMap[(int)m.x][(int)m.y] == 0) enemies.push_back(m);
                      }
                      for(int i=0; i<5; i++) {
                          Enemy s;
                          s.x = enemy.x + (rand()%20 - 10);
                          s.y = enemy.y + (rand()%20 - 10);
+                         
+                         // Safety Checks
+                         if (s.x < 5.0f) s.x = 5.0f;
+                         if (s.x > MAP_WIDTH - 5.0f) s.x = MAP_WIDTH - 5.0f;
+                         if (s.y < 5.0f) s.y = 5.0f;
+                         if (s.y > MAP_HEIGHT - 5.0f) s.y = MAP_HEIGHT - 5.0f;
+                         
+                         float spdx = s.x - 32.0f;
+                         float spdy = s.y - 32.0f;
+                         if (sqrtf(spdx*spdx + spdy*spdy) < 6.0f) {
+                              float ang = atan2f(spdy, spdx);
+                              s.x = 32.0f + cosf(ang) * 6.5f;
+                              s.y = 32.0f + sinf(ang) * 6.5f;
+                         }
+                         
                          s.active = true;
                          s.isShooter = true;
                          s.health = 3;
                          s.speed = 3.0f;
-                         if (s.x > 0 && s.x < MAP_WIDTH && s.y > 0 && s.y < MAP_HEIGHT) enemies.push_back(s);
+                         if (worldMap[(int)s.x][(int)s.y] == 0) enemies.push_back(s);
                      }
                      enemy.state = 1; // Charge after rally
                  }
@@ -3594,11 +3796,14 @@ void ShootBullet() {
         r.dirY = sinf(player.angle);
         r.speed = 25.0f; // Fast rocket
         r.active = true;
+        r.isEnemy = false; 
+        r.targetX = 0; r.targetY = 0;
         r.z = 0.5f; // Eye level
         r.verticalSpeed = 0;
         r.startX = r.x;
         r.startY = r.y;
         r.maxRange = 64.0f;
+        r.safetyTimer = 0.2f;
         rockets.push_back(r);
         PlayGunSound(2); // Bazooka Fire Sound
         gunRecoil = 80.0f; // Strong recoil for Bazooka
@@ -3710,6 +3915,18 @@ void UpdateBullets(float deltaTime) {
                  continue;
             }
             
+            if (r.safetyTimer > 0) {
+                r.safetyTimer -= deltaTime;
+                // Skip collision during safety time
+                // Spawn Trail
+                if ((int)(GetTickCount() / 50) % 2 == 0) {
+                     RocketTrail t;
+                     t.x = r.x; t.y = r.y; t.life = 0.5f; t.active = true;
+                     rocketTrails.push_back(t);
+                }
+                continue; 
+            }
+            
             // Spawn Trail
             if ((int)(GetTickCount() / 50) % 2 == 0) {
                  RocketTrail t;
@@ -3754,6 +3971,8 @@ void UpdateBullets(float deltaTime) {
                 explosions.push_back(ex);
                 
                 PlayBazookaExplosionSound();
+                screenShakeTimer = 0.5f;
+                screenShakeIntensity = 20.0f;
                 
                 for (auto& e : enemies) {
                     if (!e.active) continue;
@@ -4470,6 +4689,10 @@ void DrawCompass(HDC hdc) {
 }
 
 void DrawMinimap(HDC hdc) {
+    // Save original GDI objects once at the start
+    HGDIOBJ origPen = GetCurrentObject(hdc, OBJ_PEN);
+    HGDIOBJ origBrush = GetCurrentObject(hdc, OBJ_BRUSH);
+    
     int cellSize = 3;
     int mapDrawWidth = MAP_WIDTH * cellSize;
     int mapDrawHeight = MAP_HEIGHT * cellSize;
@@ -4477,10 +4700,8 @@ void DrawMinimap(HDC hdc) {
     int offsetX = SCREEN_WIDTH - mapDrawWidth - 10;
     int offsetY = 10;
     
-    HBRUSH bgBrush = CreateSolidBrush(RGB(20, 20, 20));
     RECT bgRect = {offsetX - 3, offsetY - 3, offsetX + mapDrawWidth + 3, offsetY + mapDrawHeight + 3};
-    FillRect(hdc, &bgRect, bgBrush);
-    DeleteObject(bgBrush);
+    FillRect(hdc, &bgRect, hBrushMapBG);
     
     for (int y = 0; y < MAP_HEIGHT; y++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
@@ -4491,14 +4712,11 @@ void DrawMinimap(HDC hdc) {
                     offsetX + (x + 1) * cellSize, 
                     offsetY + (y + 1) * cellSize
                 };
-                COLORREF color;
-                if (worldMap[x][y] == 2) color = RGB(0, 80, 0);
-                else if (worldMap[x][y] == 1) color = RGB(100, 60, 30);
-                else color = RGB(40, 60, 30);
+                HBRUSH brush = hBrushWall3;
+                if (worldMap[x][y] == 2) brush = hBrushWall1;
+                else if (worldMap[x][y] == 1) brush = hBrushWall2;
                 
-                HBRUSH brush = CreateSolidBrush(color);
                 FillRect(hdc, &cell, brush);
-                DeleteObject(brush);
             }
         }
     }
@@ -4515,15 +4733,9 @@ void DrawMinimap(HDC hdc) {
     tri[2].x = playerScreenX + (int)(cosf(player.angle - 2.4f) * triSize * 0.5f);
     tri[2].y = playerScreenY + (int)(sinf(player.angle - 2.4f) * triSize * 0.5f);
     
-    HPEN greenPen = CreatePen(PS_SOLID, 2, RGB(0, 255, 0));
-    HBRUSH playerBrush = CreateSolidBrush(RGB(0, 255, 0));
-    HPEN oldPen = (HPEN)SelectObject(hdc, greenPen);
-    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, playerBrush);
+    SelectObject(hdc, hPenPlayer);
+    SelectObject(hdc, hBrushPlayer);
     Polygon(hdc, tri, 3);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(greenPen);
-    DeleteObject(playerBrush);
     
     if (viewRange) {
         float range = 0;
@@ -4532,44 +4744,33 @@ void DrawMinimap(HDC hdc) {
         else if (currentWeapon == 2) range = 64.0f;
         
         int rangePx = (int)(range * cellSize);
-        HPEN rangePen = CreatePen(PS_DOT, 1, RGB(0, 255, 255)); // Cyan dotted
-        HBRUSH hollowBrush = (HBRUSH)GetStockObject(HOLLOW_BRUSH);
-        HPEN oldPen = (HPEN)SelectObject(hdc, rangePen);
-        HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, hollowBrush);
+        
+        SelectObject(hdc, hPenRange);
+        SelectObject(hdc, hBrushHollow);
         
         Ellipse(hdc, playerScreenX - rangePx, playerScreenY - rangePx, 
                      playerScreenX + rangePx, playerScreenY + rangePx);
-                     
-        SelectObject(hdc, oldPen);
-        SelectObject(hdc, oldBrush);
-        DeleteObject(rangePen);
     }
     
     MoveToEx(hdc, playerScreenX, playerScreenY, NULL);
-    HPEN fovPen = CreatePen(PS_SOLID, 1, RGB(0, 200, 0));
-    SelectObject(hdc, fovPen);
+    SelectObject(hdc, hPenFOV);
     int fovLen = 20;
     LineTo(hdc, playerScreenX + (int)(cosf(player.angle) * fovLen), playerScreenY + (int)(sinf(player.angle) * fovLen));
-    SelectObject(hdc, oldPen);
-    DeleteObject(fovPen);
+    
+    // Switch to NULL_PEN for filled shapes (dots) to avoid borders
+    SelectObject(hdc, GetStockObject(NULL_PEN));
     
     int spireScreenX = offsetX + (int)(32 * cellSize);
     int spireScreenY = offsetY + (int)(32 * cellSize);
-    HBRUSH spireBrush = CreateSolidBrush(RGB(255, 165, 0));
-    oldBrush = (HBRUSH)SelectObject(hdc, spireBrush);
+    SelectObject(hdc, hBrushSpire);
     Ellipse(hdc, spireScreenX - 6, spireScreenY - 6, spireScreenX + 6, spireScreenY + 6);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(spireBrush);
     
+    SelectObject(hdc, hBrushMedkit);
     for (int i = 0; i < 3; i++) {
         if (medkits[i].active) {
             int medkitScreenX = offsetX + (int)(medkits[i].x * cellSize);
             int medkitScreenY = offsetY + (int)(medkits[i].y * cellSize);
-            HBRUSH medkitBrush = CreateSolidBrush(RGB(0, 150, 255));
-            oldBrush = (HBRUSH)SelectObject(hdc, medkitBrush);
             Ellipse(hdc, medkitScreenX - 4, medkitScreenY - 4, medkitScreenX + 4, medkitScreenY + 4);
-            SelectObject(hdc, oldBrush);
-            DeleteObject(medkitBrush);
         }
     }
     
@@ -4579,52 +4780,55 @@ void DrawMinimap(HDC hdc) {
             int ey = offsetY + (int)(enemy.y * cellSize);
             
             if (ex >= offsetX && ex < offsetX + mapDrawWidth && ey >= offsetY && ey < offsetY + mapDrawHeight) {
-                COLORREF enemyColor = (enemy.tacticState != 0) ? RGB(148, 0, 211) : RGB(255, 0, 0);
-                HBRUSH enemyBrush = CreateSolidBrush(enemyColor);
-                oldBrush = (HBRUSH)SelectObject(hdc, enemyBrush);
+                // Use Purple for tactical(smart) enemies, Red for normal
+                HBRUSH enemyBrush = (enemy.tacticState != 0) ? hBrushPurple : hBrushRed; 
+                SelectObject(hdc, enemyBrush);
                 Ellipse(hdc, ex - 3, ey - 3, ex + 3, ey + 3);
-                SelectObject(hdc, oldBrush);
-                DeleteObject(enemyBrush);
             }
         }
     }
     
+    SelectObject(hdc, hBrushMagenta);
     for (int i = 0; i < 6; i++) {
         int cx = offsetX + (int)(claws[i].x * cellSize);
         int cy = offsetY + (int)(claws[i].y * cellSize);
         
-        HBRUSH clawBrush = CreateSolidBrush(RGB(255, 0, 255)); // Bright Magenta
-        oldBrush = (HBRUSH)SelectObject(hdc, clawBrush);
         Rectangle(hdc, cx - 4, cy - 4, cx + 4, cy + 4);
-        SelectObject(hdc, oldBrush);
-        DeleteObject(clawBrush);
     }
     
-
     // Marshall Health Bar
     if (marshallHealthBarActive) {
         int barW = 300;
         int barH = 15;
+        // Move bar down to 50 to ensure large text fits on top
         int barX = (SCREEN_WIDTH - barW) / 2;
-        int barY = 40; 
+        int barY = 50; 
         
-        HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
         RECT border = {barX - 2, barY - 2, barX + barW + 2, barY + barH + 2};
-        FillRect(hdc, &border, blackBrush); 
-        DeleteObject(blackBrush);
+        FillRect(hdc, &border, hBrushDarkRed); 
         
         if (marshallHP > 0) {
             int fillW = (int)((float)marshallHP / marshallMaxHP * barW);
-            HBRUSH redBrush = CreateSolidBrush(RGB(200, 0, 0));
             RECT fill = {barX, barY, barX + fillW, barY + barH};
-            FillRect(hdc, &fill, redBrush); 
-            DeleteObject(redBrush);
+            FillRect(hdc, &fill, hBrushRed); 
         }
         
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
-        TextOutA(hdc, barX, barY - 15, "MARSHALL", 8);
+        HFONT hOldFont = (HFONT)SelectObject(hdc, hFontMedium);
+        
+        SIZE sz;
+        const char* name = "MARSHALL";
+        GetTextExtentPoint32A(hdc, name, 8, &sz);
+        // Draw text above bar with dynamic height
+        TextOutA(hdc, barX + (barW - sz.cx) / 2, barY - sz.cy - 2, name, 8);
+        
+        SelectObject(hdc, hOldFont);
     }
+    
+    // Restore original objects
+    SelectObject(hdc, origPen);
+    SelectObject(hdc, origBrush);
 }
 
 void UpdatePlayer(float deltaTime) {
@@ -4893,13 +5097,11 @@ void RenderGame(HDC hdc) {
                  // Center Y calculation matching RenderSprite
                  int centerY = (SCREEN_HEIGHT / 2 + (int)((SCREEN_HEIGHT / 2.0f) / dist) + (int)player.pitch) - (int)(spriteHeight / 2.0f);
 
-                 HPEN hPen = CreatePen(PS_SOLID, 3, RGB(255, 0, 0));
-                 HPEN oldPen = (HPEN)SelectObject(memDC, hPen);
-                 HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, GetStockObject(NULL_BRUSH));
+                 HPEN oldPen = (HPEN)SelectObject(memDC, hPenRed); 
+                 HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, hBrushHollow);
                  Ellipse(memDC, (int)(screenX - radius), centerY - radius, (int)(screenX + radius), centerY + radius);
                  SelectObject(memDC, oldPen);
                  SelectObject(memDC, oldBrush);
-                 DeleteObject(hPen);
              }
         }
         
@@ -4919,12 +5121,10 @@ void RenderGame(HDC hdc) {
                  
                  int centerY = (SCREEN_HEIGHT / 2 + (int)((SCREEN_HEIGHT / 2.0f) / dist) + (int)player.pitch) - (int)(spriteHeight / 2.0f);
                  
-                 HPEN laserPen = CreatePen(PS_SOLID, 5, RGB(255, 0, 0));
-                 HPEN oldPen = (HPEN)SelectObject(memDC, laserPen);
+                 HPEN oldPen = (HPEN)SelectObject(memDC, hPenLaser);
                  MoveToEx(memDC, (int)screenX, centerY, NULL);
                  LineTo(memDC, SCREEN_WIDTH / 2, SCREEN_HEIGHT); // To weapon
                  SelectObject(memDC, oldPen);
-                 DeleteObject(laserPen);
              }
         }
     }
@@ -4933,8 +5133,7 @@ void RenderGame(HDC hdc) {
     int cy = SCREEN_HEIGHT / 2;
     int reticleSize = 12;
     int reticleGap = 4;
-    HPEN reticlePen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
-    HPEN oldPen = (HPEN)SelectObject(memDC, reticlePen);
+    HPEN oldPen = (HPEN)SelectObject(memDC, hPenWhite);
     MoveToEx(memDC, cx - reticleSize, cy, NULL);
     LineTo(memDC, cx - reticleGap, cy);
     MoveToEx(memDC, cx + reticleGap, cy, NULL);
@@ -4944,7 +5143,6 @@ void RenderGame(HDC hdc) {
     MoveToEx(memDC, cx, cy + reticleGap, NULL);
     LineTo(memDC, cx, cy + reticleSize);
     SelectObject(memDC, oldPen);
-    DeleteObject(reticlePen);
     
     DrawMinimap(memDC);
     SetBkMode(memDC, TRANSPARENT);
@@ -4993,22 +5191,17 @@ void RenderGame(HDC hdc) {
         int barX = 10;
         int barY = 155;
         RECT bgRect = {barX, barY, barX + barW, barY + barH};
-        HBRUSH bgB = CreateSolidBrush(RGB(50, 50, 50));
-        FillRect(memDC, &bgRect, bgB);
-        DeleteObject(bgB);
+        FillRect(memDC, &bgRect, hBrushDarkGray);
         
         float pct = paragonSummonCooldown / 3.0f;
         if (pct > 1.0f) pct = 1.0f;
         int fillW = (int)(barW * (1.0f - pct));
         RECT fillRect = {barX, barY, barX + fillW, barY + barH};
-        HBRUSH fillB = CreateSolidBrush(RGB(147, 112, 219));
-        FillRect(memDC, &fillRect, fillB);
-        DeleteObject(fillB);
+        FillRect(memDC, &fillRect, hBrushMagenta);
     }
     
     if (scoreTimer > 0) {
-        HFONT hFont = CreateFontW(48, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hFont);
+        HFONT hOldFont = (HFONT)SelectObject(memDC, hFontTitle);
         
         SetTextColor(memDC, RGB(255, 215, 0));
         SetBkMode(memDC, TRANSPARENT);
@@ -5022,12 +5215,10 @@ void RenderGame(HDC hdc) {
         TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, (SCREEN_HEIGHT - size.cy) / 2 + 10, scoreMsg, (int)wcslen(scoreMsg));
         
         SelectObject(memDC, hOldFont);
-        DeleteObject(hFont);
     }
     
     if (hordeMessageTimer > 0) {
-        HFONT hHFont = CreateFontW(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldHFont = (HFONT)SelectObject(memDC, hHFont);
+        HFONT hOldHFont = (HFONT)SelectObject(memDC, hFontMedium);
         
         SetTextColor(memDC, RGB(255, 0, 0));
         SetBkMode(memDC, TRANSPARENT);
@@ -5038,12 +5229,10 @@ void RenderGame(HDC hdc) {
         TextOutW(memDC, (SCREEN_WIDTH - hsz.cx) / 2, SCREEN_HEIGHT / 4, hordeMsg, (int)wcslen(hordeMsg));
         
         SelectObject(memDC, hOldHFont);
-        DeleteObject(hHFont);
     }
     
     if (paragonMessageTimer > 0) {
-        HFONT hPFont = CreateFontW(40, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldPFont = (HFONT)SelectObject(memDC, hPFont);
+        HFONT hOldPFont = (HFONT)SelectObject(memDC, hFontMedium);
         
         int alpha = (int)((paragonMessageTimer / 3.0f) * 255.0f);
         if (alpha > 255) alpha = 255;
@@ -5057,12 +5246,10 @@ void RenderGame(HDC hdc) {
         TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 3, msg, (int)wcslen(msg));
         
         SelectObject(memDC, hOldPFont);
-        DeleteObject(hPFont);
     }
     
     if (upgradeMessageTimer > 0) {
-        HFONT hUFont = CreateFontW(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldUFont = (HFONT)SelectObject(memDC, hUFont);
+        HFONT hOldUFont = (HFONT)SelectObject(memDC, hFontMedium);
         
         SetTextColor(memDC, RGB(255, 215, 0));
         SetBkMode(memDC, TRANSPARENT);
@@ -5078,14 +5265,12 @@ void RenderGame(HDC hdc) {
         TextOutW(memDC, (SCREEN_WIDTH - usz2.cx) / 2, SCREEN_HEIGHT / 5 + 40, upMsg2, (int)wcslen(upMsg2));
         
         SelectObject(memDC, hOldUFont);
-        DeleteObject(hUFont);
     }
     
     // Boss Health Bar
    
     if (militiaMessageTimer > 0) {
-        HFONT hMFont = CreateFontW(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldMFont = (HFONT)SelectObject(memDC, hMFont);
+        HFONT hOldMFont = (HFONT)SelectObject(memDC, hFontMedium);
         SetTextColor(memDC, RGB(255, 0, 0));
         SetBkMode(memDC, TRANSPARENT);
         const wchar_t* msg = L"A militia is forming...";
@@ -5093,7 +5278,6 @@ void RenderGame(HDC hdc) {
         GetTextExtentPoint32W(memDC, msg, (int)wcslen(msg), &sz);
         TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 4 + 40, msg, (int)wcslen(msg));
         SelectObject(memDC, hOldMFont);
-        DeleteObject(hMFont);
         militiaMessageTimer -= 0.016f; // Approx frame time dec
     }
 
@@ -5105,9 +5289,7 @@ void RenderGame(HDC hdc) {
         int barY = 40;
         
         RECT bgRect = {barX, barY, barX + barW, barY + barH};
-        HBRUSH bgB = CreateSolidBrush(RGB(50, 0, 0));
-        FillRect(memDC, &bgRect, bgB);
-        DeleteObject(bgB);
+        FillRect(memDC, &bgRect, hBrushDarkRed);
         
         int hp = bossHealth;
         int max = 1500; 
@@ -5116,19 +5298,15 @@ void RenderGame(HDC hdc) {
         if (hpW > barW) hpW = barW;
         
         RECT hpRect = {barX, barY, barX + hpW, barY + barH};
-        HBRUSH hpB = CreateSolidBrush(RGB(200, 0, 0));
-        FillRect(memDC, &hpRect, hpB);
-        DeleteObject(hpB);
+        FillRect(memDC, &hpRect, hBrushRed);
         
-        HFONT hSpireFont = CreateFontW(40, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldSpireFont = (HFONT)SelectObject(memDC, hSpireFont);
+        HFONT hOldSpireFont = (HFONT)SelectObject(memDC, hFontMedium);
         const wchar_t* name = L"THE SPIRE";
         SIZE sz;
         GetTextExtentPoint32W(memDC, name, (int)wcslen(name), &sz);
         SetTextColor(memDC, RGB(255, 255, 255));
         TextOutW(memDC, barX + (barW - sz.cx) / 2, barY - sz.cy - 5, name, (int)wcslen(name));
         SelectObject(memDC, hOldSpireFont);
-        DeleteObject(hSpireFont);
     }
 
     // Militia Bar - Placed below the Marshall bar, shows count
@@ -5138,19 +5316,15 @@ void RenderGame(HDC hdc) {
          int barX = (SCREEN_WIDTH - barW) / 2;
          int barY = 85; 
          
-         HBRUSH mBgB = CreateSolidBrush(RGB(30,30,30));
          RECT mBgRect = {barX - 2, barY - 2, barX + barW + 2, barY + barH + 2}; 
-         FillRect(memDC, &mBgRect, mBgB);
-         DeleteObject(mBgB);
+         FillRect(memDC, &mBgRect, hBrushDarkGray);
          
          int maxRef = (militiaMaxCount < 1) ? 1 : militiaMaxCount;
          int mW = (int)((float)militiaCount / (float)maxRef * barW);
          if (mW > barW) mW = barW;
          if (mW < 0) mW = 0;
          RECT mHpRect = {barX, barY, barX + mW, barY + barH};
-         HBRUSH mHpB = CreateSolidBrush(RGB(150, 100, 0)); 
-         FillRect(memDC, &mHpRect, mHpB);
-         DeleteObject(mHpB);
+         FillRect(memDC, &mHpRect, hBrushGold);
          
          wchar_t mText[64];
          swprintf(mText, 64, L"THE MILITIA  %d / %d", militiaCount, militiaMaxCount);
@@ -5169,9 +5343,7 @@ void RenderGame(HDC hdc) {
             int barX = startX + i * (clawBarW + 10);
             
             RECT bgRect = {barX, clawBarY, barX + clawBarW, clawBarY + clawBarH};
-            HBRUSH bgB = CreateSolidBrush(RGB(40, 40, 40));
-            FillRect(memDC, &bgRect, bgB);
-            DeleteObject(bgB);
+            FillRect(memDC, &bgRect, hBrushDarkGray);
             
             if (claws[i].state != CLAW_PH2_DEAD) {
                 int hp = claws[i].health;
@@ -5180,9 +5352,7 @@ void RenderGame(HDC hdc) {
                 int hpW = (int)((float)hp / 250.0f * clawBarW);
                 
                 RECT hpRect = {barX, clawBarY, barX + hpW, clawBarY + clawBarH};
-                HBRUSH hpB = CreateSolidBrush(RGB(200, 0, 200));
-                FillRect(memDC, &hpRect, hpB);
-                DeleteObject(hpB);
+                FillRect(memDC, &hpRect, hBrushMagenta);
             }
             
             wchar_t clawLabel[16];
@@ -5199,8 +5369,7 @@ void RenderGame(HDC hdc) {
         wchar_t bossTimerMsg[64];
         swprintf(bossTimerMsg, 64, L"BOSS IN: %.0f", preBossTimer);
         
-        HFONT hFont = CreateFontW(50, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hFont);
+        HFONT hOldFont = (HFONT)SelectObject(memDC, hFontTitle);
         
         SetTextColor(memDC, RGB(255, 0, 0));
         SetBkMode(memDC, TRANSPARENT);
@@ -5210,13 +5379,11 @@ void RenderGame(HDC hdc) {
         TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, SCREEN_HEIGHT / 2 - 50, bossTimerMsg, (int)wcslen(bossTimerMsg));
         
         SelectObject(memDC, hOldFont);
-        DeleteObject(hFont);
     }
 
     // Pre-Boss Phase: Shaking "God has awoken" text
     if (bossActive && bossEventTimer > 0) {
-        HFONT hFont = CreateFontW(60, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Arial");
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hFont);
+        HFONT hOldFont = (HFONT)SelectObject(memDC, hFontBig);
         SetTextColor(memDC, RGB(255, 0, 0));
         SetBkMode(memDC, TRANSPARENT);
         
@@ -5225,7 +5392,6 @@ void RenderGame(HDC hdc) {
         
         TextOutW(memDC, SCREEN_WIDTH/2 - 200 + shakeX, SCREEN_HEIGHT/2 - 100 + shakeY, L"God has awoken", 14);
         SelectObject(memDC, hOldFont);
-        DeleteObject(hFont);
         
         SetTextColor(memDC, RGB(255, 255, 255));
     }
@@ -5239,8 +5405,7 @@ void RenderGame(HDC hdc) {
     if (postBossPhase && dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
         NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
         if (nearNPC && !nearNPC->dialoguePath.empty()) {
-            HFONT hPromptFont = CreateFontW(24, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-            HFONT hOldPromptFont = (HFONT)SelectObject(memDC, hPromptFont);
+            HFONT hOldPromptFont = (HFONT)SelectObject(memDC, hFontHUD);
             SetTextColor(memDC, RGB(255, 255, 0));
             SetBkMode(memDC, TRANSPARENT);
             const wchar_t* prompt = L"Press E to interact";
@@ -5248,7 +5413,20 @@ void RenderGame(HDC hdc) {
             GetTextExtentPoint32W(memDC, prompt, (int)wcslen(prompt), &sz);
             TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 2 + 100, prompt, (int)wcslen(prompt));
             SelectObject(memDC, hOldPromptFont);
-            DeleteObject(hPromptFont);
+        }
+    }
+    
+    if (preGamePhase && dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
+        NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
+        if (nearNPC && !nearNPC->dialoguePath.empty()) {
+            HFONT hOldPromptFont = (HFONT)SelectObject(memDC, hFontHUD);
+            SetTextColor(memDC, RGB(255, 255, 0));
+            SetBkMode(memDC, TRANSPARENT);
+            const wchar_t* prompt = L"Press E to talk";
+            SIZE sz;
+            GetTextExtentPoint32W(memDC, prompt, (int)wcslen(prompt), &sz);
+            TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 2 + 100, prompt, (int)wcslen(prompt));
+            SelectObject(memDC, hOldPromptFont);
         }
     }
     
@@ -5256,7 +5434,7 @@ void RenderGame(HDC hdc) {
         if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
             auto& line = currentDialogue.lines[dialogueLineIndex];
             bool showOpts = (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT);
-            DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, currentDialogue.name, line.text, showOpts, line.option1, line.option2, selectedDialogueOption);
+            DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, currentDialogue.name, line.text, showOpts, (int)line.options.size(), line.options, selectedDialogueOption);
         }
     }
     
@@ -5310,20 +5488,16 @@ void RenderGame(HDC hdc) {
             cursorShownForVictory = true;
         }
         
-        HFONT hBigFont = CreateFontW(72, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hMedFont = CreateFontW(36, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hBtnFont = CreateFontW(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        
         SetBkMode(memDC, TRANSPARENT);
         
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hBigFont);
+        HFONT oldFont = (HFONT)SelectObject(memDC, hFontBig);
         SetTextColor(memDC, RGB(0, 150, 0));
         const wchar_t* wonText = L"You Won!";
         SIZE size;
         GetTextExtentPoint32W(memDC, wonText, (int)wcslen(wonText), &size);
         TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 150, wonText, (int)wcslen(wonText));
         
-        SelectObject(memDC, hMedFont);
+        SelectObject(memDC, hFontMedium);
         SetTextColor(memDC, RGB(50, 50, 50));
         wchar_t hsText[128];
         swprintf(hsText, 128, L"Final Score: %d", score);
@@ -5334,17 +5508,13 @@ void RenderGame(HDC hdc) {
         GetTextExtentPoint32W(memDC, hsText, (int)wcslen(hsText), &size);
         TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 290, hsText, (int)wcslen(hsText));
         
-        SelectObject(memDC, hBtnFont);
+        SelectObject(memDC, hFontHUD);
         
         RECT playAgainBtn = {SCREEN_WIDTH/2 - 120, 380, SCREEN_WIDTH/2 + 120, 430};
         RECT exitBtn = {SCREEN_WIDTH/2 - 120, 450, SCREEN_WIDTH/2 + 120, 500};
         
-        HBRUSH greenBrush = CreateSolidBrush(RGB(0, 180, 0));
-        HBRUSH redBrush = CreateSolidBrush(RGB(180, 0, 0));
-        FillRect(memDC, &playAgainBtn, greenBrush);
-        FillRect(memDC, &exitBtn, redBrush);
-        DeleteObject(greenBrush);
-        DeleteObject(redBrush);
+        FillRect(memDC, &playAgainBtn, hBrushGreen);
+        FillRect(memDC, &exitBtn, hBrushRed); // Using standard red (200,0,0) vs old (180,0,0) - acceptable
         
         SetTextColor(memDC, RGB(255, 255, 255));
         const wchar_t* playText = L"Play Again";
@@ -5355,23 +5525,18 @@ void RenderGame(HDC hdc) {
         GetTextExtentPoint32W(memDC, exitText, (int)wcslen(exitText), &size);
         TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 462, exitText, (int)wcslen(exitText));
         
-        SelectObject(memDC, hOldFont);
-        DeleteObject(hBigFont);
-        DeleteObject(hMedFont);
-        DeleteObject(hBtnFont);
+        SelectObject(memDC, oldFont);
     }
     
     // Debug Console
     if (consoleActive) {
         RECT consoleRect = {0, 0, SCREEN_WIDTH, 200};
-        HBRUSH consoleBrush = CreateSolidBrush(RGB(50, 50, 50)); // Dark Gray
-        FillRect(memDC, &consoleRect, consoleBrush);
-        DeleteObject(consoleBrush);
+        FillRect(memDC, &consoleRect, hBrushDarkGray);
         
         SetBkMode(memDC, TRANSPARENT);
         SetTextColor(memDC, RGB(255, 255, 255));
-        HFONT hConsFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Consolas");
-        HFONT hOldConsFont = (HFONT)SelectObject(memDC, hConsFont);
+        
+        HFONT oldFont = (HFONT)SelectObject(memDC, hFontDebug);
         
         TextOutW(memDC, 10, 10, L"DEBUG CONSOLE (type 'exit' to close)", 36);
         TextOutW(memDC, 10, 35, L">", 1);
@@ -5390,8 +5555,7 @@ void RenderGame(HDC hdc) {
             SetTextColor(memDC, RGB(255, 255, 255));
         }
         
-        SelectObject(memDC, hOldConsFont);
-        DeleteObject(hConsFont);
+        SelectObject(memDC, oldFont);
     }
     
     // Stats Display
@@ -5594,6 +5758,39 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             
+            if (wParam == 'E' && preGamePhase && !consoleActive && !cutsceneActive) {
+                if (dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
+                    NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
+                    if (nearNPC && !nearNPC->dialoguePath.empty()) {
+                        currentTalkingNPC = nearNPC;
+                        nearNPC->isTalking = true;
+                        currentDialogue = DialogueSystem::LoadDialogueFromJSON(nearNPC->dialoguePath.c_str(), false);
+                        dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
+                        dialogueLineIndex = 0;
+                        
+                        if (dialogueLineIndex < (int)currentDialogue.lines.size() && 
+                            currentDialogue.lines[dialogueLineIndex].hasOptions) {
+                            dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
+                            selectedDialogueOption = 0;
+                        }
+                    }
+                } else if (dialogueState == DialogueSystem::DIALOGUE_ACTIVE) {
+                    if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
+                        dialogueLineIndex++;
+                        if (dialogueLineIndex >= (int)currentDialogue.lines.size()) {
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
+                        } else {
+                            if (currentDialogue.lines[dialogueLineIndex].hasOptions) {
+                                dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
+                                selectedDialogueOption = 0;
+                            }
+                        }
+                    }
+                }
+            }
+            
             if (wParam == 'E' && postBossPhase && !consoleActive) {
                 if (dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
                     NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
@@ -5604,40 +5801,100 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         currentDialogue = DialogueSystem::LoadDialogueFromJSON(nearNPC->dialoguePath.c_str(), isFollower);
                         dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
                         dialogueLineIndex = 0;
+                        
+                       
+                        if (dialogueLineIndex < (int)currentDialogue.lines.size() && 
+                            currentDialogue.lines[dialogueLineIndex].hasOptions) {
+                            dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
+                            selectedDialogueOption = 0;
+                        }
                     }
                 } else if (dialogueState == DialogueSystem::DIALOGUE_ACTIVE) {
                     if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
-                        if (currentDialogue.lines[dialogueLineIndex].hasOptions) {
-                            dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
-                            selectedDialogueOption = 0;
+                        dialogueLineIndex++;
+                        if (dialogueLineIndex >= (int)currentDialogue.lines.size()) {
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
                         } else {
-                            dialogueLineIndex++;
-                            if (dialogueLineIndex >= (int)currentDialogue.lines.size()) {
-                                dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                                if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                                currentTalkingNPC = nullptr;
+                            
+                            if (currentDialogue.lines[dialogueLineIndex].hasOptions) {
+                                dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
+                                selectedDialogueOption = 0;
                             }
+                        }
+                    }
+                } else if (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT) {
+                    if (wParam == VK_RETURN || wParam == VK_SPACE) {
+                        if (selectedDialogueOption == 0) {
+                            whiteFadeToVictory = true;
+                            whiteFadeTimer = 2.0f;
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
+                        } else {
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
                         }
                     }
                 }
             }
             
             if (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT && !consoleActive) {
-                if (wParam == VK_UP || wParam == VK_LEFT || wParam == 'W' || wParam == 'A') {
+                int numOpts = (dialogueLineIndex < (int)currentDialogue.lines.size()) ? (int)currentDialogue.lines[dialogueLineIndex].options.size() : 2;
+                if (numOpts < 1) numOpts = 1;
+                
+                if (wParam == VK_UP || wParam == 'W') {
+                    selectedDialogueOption--;
+                    if (selectedDialogueOption < 0) selectedDialogueOption = numOpts - 1;
+                } else if (wParam == VK_DOWN || wParam == 'S') {
+                    selectedDialogueOption++;
+                    if (selectedDialogueOption >= numOpts) selectedDialogueOption = 0;
+                } else if (wParam == VK_LEFT || wParam == 'A') {
                     selectedDialogueOption = 0;
-                } else if (wParam == VK_DOWN || wParam == VK_RIGHT || wParam == 'S' || wParam == 'D') {
-                    selectedDialogueOption = 1;
-                } else if (wParam == VK_RETURN || wParam == 'E' || wParam == VK_SPACE) {
-                    if (selectedDialogueOption == 0) {
-                        whiteFadeToVictory = true;
-                        whiteFadeTimer = 2.0f;
-                        dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                        if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                        currentTalkingNPC = nullptr;
-                    } else {
-                        dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                        if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                        currentTalkingNPC = nullptr;
+                } else if (wParam == VK_RIGHT || wParam == 'D') {
+                    selectedDialogueOption = numOpts - 1;
+                } else if (wParam == VK_RETURN || wParam == VK_SPACE || wParam == 'E') {
+                    if (preGamePhase) {
+                        if (selectedDialogueOption == 0) {
+                            cutsceneActive = true;
+                            cutsceneState = 1;
+                            cutsceneTimer = 0;
+                            cutsceneEnemyX = percyX + 3.0f * FastCos(player.angle);
+                            cutsceneEnemyY = percyY + 3.0f * FastSin(player.angle);
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
+                        } else if (selectedDialogueOption == 1) {
+                            dialogueLineIndex++;
+                            if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
+                                dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
+                            } else {
+                                dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            }
+                            selectedDialogueOption = 0;
+                        } else if (selectedDialogueOption == 2) {
+                            dialogueLineIndex++;
+                            if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
+                                dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
+                            } else {
+                                dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            }
+                            selectedDialogueOption = 0;
+                        }
+                    } else if (postBossPhase) {
+                        if (selectedDialogueOption == 0) {
+                            whiteFadeToVictory = true;
+                            whiteFadeTimer = 2.0f;
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
+                        } else {
+                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                            currentTalkingNPC = nullptr;
+                        }
                     }
                 }
             }
@@ -5801,13 +6058,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     LoadHighScore();
     InitTrigTables();
+    InitGraphics();
     TryLoadAssets();
     GenerateWorld();
     Pathfinder::Init(worldMap, CheckClawCollision);
-    SpawnEnemies();
+    
+    if (!preGamePhase) {
+        SpawnEnemies();
+    }
     SpawnMedkit();
     InitClaws();
     InitThreadPool();
+    
+    if (preGamePhase) {
+        percyX = player.x + 2.0f * FastCos(player.angle);
+        percyY = player.y + 2.0f * FastSin(player.angle);
+        
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+        if (!lastSlash) lastSlash = wcsrchr(exePath, L'/');
+        if (lastSlash) *lastSlash = L'\0';
+        
+        wchar_t dialoguePath[MAX_PATH];
+        swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\percy.json", exePath);
+        
+        NPCSystem::SpawnNPC(percyX, percyY, L"Percy", percyPixels, percyW, percyH, percyPixels, percyW, percyH, dialoguePath);
+    }
     
     enemies.reserve(64);
     bullets.reserve(32);
@@ -5847,23 +6124,38 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     _beginthread(BackgroundMusic, 0, NULL);
     
+    LARGE_INTEGER perfFreq, prevCount, currentCount;
+    QueryPerformanceFrequency(&perfFreq);
+    QueryPerformanceCounter(&prevCount);
+    double targetFrameTime = 1.0 / 75.0; // 75 FPS Cap
+    timeBeginPeriod(1); // High resolution sleep
+
     MSG msg;
-    DWORD lastTime = GetTickCount();
-    
+    static double timeAccum = 0;
+
     while (true) {
         while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
+                timeEndPeriod(1);
+                CleanupGraphics();
                 return (int)msg.wParam;
             }
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
         
-        DWORD currentTime = GetTickCount();
-        float deltaTime = (currentTime - lastTime) / 1000.0f;
-        lastTime = currentTime;
-        if (deltaTime > 0.1f) deltaTime = 0.1f;
-        if (deltaTime < 0.001f) deltaTime = 0.001f;
+        QueryPerformanceCounter(&currentCount);
+        double elapsed = (double)(currentCount.QuadPart - prevCount.QuadPart) / (double)perfFreq.QuadPart;
+        
+        if (elapsed < targetFrameTime) {
+             DWORD sleepMs = (DWORD)((targetFrameTime - elapsed) * 1000.0);
+             if (sleepMs > 0) Sleep(sleepMs);
+             continue; 
+        }
+        prevCount = currentCount;
+        
+        if (elapsed > 0.1) elapsed = 0.1; // Cap delta time
+        float deltaTime = (float)elapsed;
         
         if (!spectatorMode) {
             if (scoreTimer > 0) scoreTimer -= deltaTime;
@@ -5881,13 +6173,57 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     NPCSystem::ClearNPCs();
                 }
             }
+            
+            if (cutsceneActive) {
+                cutsceneTimer += deltaTime;
+                
+                if (cutsceneState == 1) {
+                    float dx = percyX - cutsceneEnemyX;
+                    float dy = percyY - cutsceneEnemyY;
+                    float dist = sqrtf(dx*dx + dy*dy);
+                    
+                    if (dist > 0.5f) {
+                        float speed = 3.0f;
+                        cutsceneEnemyX += (dx / dist) * speed * deltaTime;
+                        cutsceneEnemyY += (dy / dist) * speed * deltaTime;
+                    } else {
+                        cutsceneState = 2;
+                        cutsceneTimer = 0;
+                        percySpriteState = 1;
+                    }
+                }
+                else if (cutsceneState == 2) {
+                    if (cutsceneTimer > 0.5f) {
+                        cutsceneState = 3;
+                        cutsceneTimer = 0;
+                        percySpriteState = 2;
+                    }
+                }
+                else if (cutsceneState == 3) {
+                    if (cutsceneTimer > 1.0f) {
+                        cutsceneState = 4;
+                        percyDead = true;
+                        cutsceneActive = false;
+                        preGamePhase = false;
+                        
+                        for (auto& npc : NPCSystem::npcs) {
+                            if (npc.name == L"Percy") {
+                                npc.active = false;
+                            }
+                        }
+                        
+                        SpawnEnemies();
+                    }
+                }
+            }
         }
         
         fpsCounter++;
-        if (currentTime - fpsLastTime >= 1000) {
+        timeAccum += deltaTime;
+        if (timeAccum >= 1.0) {
             currentFPS = fpsCounter;
             fpsCounter = 0;
-            fpsLastTime = currentTime;
+            timeAccum = 0;
         }
         
         UpdatePlayer(deltaTime);
