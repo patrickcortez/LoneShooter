@@ -820,22 +820,6 @@ int playerSpriteW = 0, playerSpriteH = 0;
 DWORD* compassPixels = nullptr;
 int compassW = 0, compassH = 0;
 
-bool preGamePhase = true;
-bool cutsceneActive = false;
-int cutsceneState = 0;
-float cutsceneTimer = 0;
-float cutsceneEnemyX = 0, cutsceneEnemyY = 0;
-float percyX = 0, percyY = 0;
-bool percyDead = false;
-int percySpriteState = 0;
-
-DWORD* percyPixels = nullptr;
-int percyW = 0, percyH = 0;
-DWORD* percyHurtPixels = nullptr;
-int percyHurtW = 0, percyHurtH = 0;
-DWORD* percyDeathPixels = nullptr;
-int percyDeathW = 0, percyDeathH = 0;
-
 // Prototypes
 void LoadModelCurrentDir(const wchar_t* filename, float x, float z);
 void Render3DScene();
@@ -1243,18 +1227,6 @@ void TryLoadAssets() {
     swprintf(path, MAX_PATH, L"%ls\\assets\\UI\\compass.bmp", exePath);
     compassPixels = LoadBMPPixels(path, &compassW, &compassH);
     if (!compassPixels) { missingAssets.push_back(L"compass.bmp"); if (errorPixels) { compassPixels = errorPixels; compassW = errorW; compassH = errorH; } }
-
-    swprintf(path, MAX_PATH, L"%ls\\assets\\npcs\\brethren.bmp", exePath);
-    percyPixels = LoadBMPPixels(path, &percyW, &percyH);
-    if (!percyPixels) { missingAssets.push_back(L"brethren.bmp"); if (errorPixels) { percyPixels = errorPixels; percyW = errorW; percyH = errorH; } }
-    
-    swprintf(path, MAX_PATH, L"%ls\\assets\\npcs\\brethren_hurt.bmp", exePath);
-    percyHurtPixels = LoadBMPPixels(path, &percyHurtW, &percyHurtH);
-    if (!percyHurtPixels) { percyHurtPixels = percyPixels; percyHurtW = percyW; percyHurtH = percyH; }
-    
-    swprintf(path, MAX_PATH, L"%ls\\assets\\npcs\\brethren_death.bmp", exePath);
-    percyDeathPixels = LoadBMPPixels(path, &percyDeathW, &percyDeathH);
-    if (!percyDeathPixels) { percyDeathPixels = percyPixels; percyDeathW = percyW; percyDeathH = percyH; }
 
     swprintf(loadStatus, 256, L"G:%ls S:%ls A:%ls H:%ls D:%ls F:%ls M:%ls C:%ls", gunPixels?L"OK":L"X", spirePixels?L"OK":L"X", spireAwakePixels?L"OK":L"X", spireHurtPixels?L"OK":L"X", spireDeathPixels?L"OK":L"X", fireballPixels?L"OK":L"X", medkitPixels?L"OK":L"X", clawDormantPixels?L"OK":L"X");
     
@@ -2170,18 +2142,6 @@ void RenderSprites() {
         }
     }
     
-    if (preGamePhase || cutsceneActive) {
-        for (auto& npc : NPCSystem::npcs) {
-            if (!npc.active) continue;
-            float dx = npc.x - player.x;
-            float dy = npc.y - player.y;
-            float dist = sqrtf(dx*dx + dy*dy);
-            if (dist < 50.0f && dist > 0.5f) {
-                allSprites.push_back({npc.x, npc.y, dist, 20, 1.5f, percySpriteState, npc.isTalking, 0.0f, false});
-            }
-        }
-    }
-    
     if (spectatorMode) {
         float pdx = savedPlayerX - player.x; // player.x is now camera/spectator pos
         float pdy = savedPlayerY - player.y;
@@ -2301,14 +2261,6 @@ void RenderSprites() {
         } else if (sp.type == 19) {
             if (playerSpritePixels) {
                  RenderSprite(playerSpritePixels, playerSpriteW, playerSpriteH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
-            }
-        } else if (sp.type == 20) {
-            if (sp.variant == 2 && percyDeathPixels) {
-                RenderSprite(percyDeathPixels, percyDeathW, percyDeathH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
-            } else if (sp.variant == 1 && percyHurtPixels) {
-                RenderSprite(percyHurtPixels, percyHurtW, percyHurtH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
-            } else if (percyPixels) {
-                RenderSprite(percyPixels, percyW, percyH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
             }
         }
     }
@@ -5416,25 +5368,11 @@ void RenderGame(HDC hdc) {
         }
     }
     
-    if (preGamePhase && dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
-        NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
-        if (nearNPC && !nearNPC->dialoguePath.empty()) {
-            HFONT hOldPromptFont = (HFONT)SelectObject(memDC, hFontHUD);
-            SetTextColor(memDC, RGB(255, 255, 0));
-            SetBkMode(memDC, TRANSPARENT);
-            const wchar_t* prompt = L"Press E to talk";
-            SIZE sz;
-            GetTextExtentPoint32W(memDC, prompt, (int)wcslen(prompt), &sz);
-            TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 2 + 100, prompt, (int)wcslen(prompt));
-            SelectObject(memDC, hOldPromptFont);
-        }
-    }
-    
     if (dialogueState == DialogueSystem::DIALOGUE_ACTIVE || dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT) {
         if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
             auto& line = currentDialogue.lines[dialogueLineIndex];
             bool showOpts = (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT);
-            DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, currentDialogue.name, line.text, showOpts, (int)line.options.size(), line.options, selectedDialogueOption);
+            DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, currentDialogue.name, line.text, showOpts, line.option1, line.option2, selectedDialogueOption);
         }
     }
     
@@ -5758,39 +5696,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             
-            if (wParam == 'E' && preGamePhase && !consoleActive && !cutsceneActive) {
-                if (dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
-                    NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
-                    if (nearNPC && !nearNPC->dialoguePath.empty()) {
-                        currentTalkingNPC = nearNPC;
-                        nearNPC->isTalking = true;
-                        currentDialogue = DialogueSystem::LoadDialogueFromJSON(nearNPC->dialoguePath.c_str(), false);
-                        dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
-                        dialogueLineIndex = 0;
-                        
-                        if (dialogueLineIndex < (int)currentDialogue.lines.size() && 
-                            currentDialogue.lines[dialogueLineIndex].hasOptions) {
-                            dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
-                            selectedDialogueOption = 0;
-                        }
-                    }
-                } else if (dialogueState == DialogueSystem::DIALOGUE_ACTIVE) {
-                    if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
-                        dialogueLineIndex++;
-                        if (dialogueLineIndex >= (int)currentDialogue.lines.size()) {
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        } else {
-                            if (currentDialogue.lines[dialogueLineIndex].hasOptions) {
-                                dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
-                                selectedDialogueOption = 0;
-                            }
-                        }
-                    }
-                }
-            }
-            
             if (wParam == 'E' && postBossPhase && !consoleActive) {
                 if (dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
                     NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
@@ -5842,59 +5747,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             
             if (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT && !consoleActive) {
-                int numOpts = (dialogueLineIndex < (int)currentDialogue.lines.size()) ? (int)currentDialogue.lines[dialogueLineIndex].options.size() : 2;
-                if (numOpts < 1) numOpts = 1;
-                
-                if (wParam == VK_UP || wParam == 'W') {
-                    selectedDialogueOption--;
-                    if (selectedDialogueOption < 0) selectedDialogueOption = numOpts - 1;
-                } else if (wParam == VK_DOWN || wParam == 'S') {
-                    selectedDialogueOption++;
-                    if (selectedDialogueOption >= numOpts) selectedDialogueOption = 0;
-                } else if (wParam == VK_LEFT || wParam == 'A') {
+                if (wParam == VK_UP || wParam == VK_LEFT || wParam == 'W' || wParam == 'A') {
                     selectedDialogueOption = 0;
-                } else if (wParam == VK_RIGHT || wParam == 'D') {
-                    selectedDialogueOption = numOpts - 1;
-                } else if (wParam == VK_RETURN || wParam == VK_SPACE || wParam == 'E') {
-                    if (preGamePhase) {
-                        if (selectedDialogueOption == 0) {
-                            cutsceneActive = true;
-                            cutsceneState = 1;
-                            cutsceneTimer = 0;
-                            cutsceneEnemyX = percyX + 3.0f * FastCos(player.angle);
-                            cutsceneEnemyY = percyY + 3.0f * FastSin(player.angle);
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        } else if (selectedDialogueOption == 1) {
-                            dialogueLineIndex++;
-                            if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
-                                dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
-                            } else {
-                                dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            }
-                            selectedDialogueOption = 0;
-                        } else if (selectedDialogueOption == 2) {
-                            dialogueLineIndex++;
-                            if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
-                                dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
-                            } else {
-                                dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            }
-                            selectedDialogueOption = 0;
-                        }
-                    } else if (postBossPhase) {
-                        if (selectedDialogueOption == 0) {
-                            whiteFadeToVictory = true;
-                            whiteFadeTimer = 2.0f;
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        } else {
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        }
+                } else if (wParam == VK_DOWN || wParam == VK_RIGHT || wParam == 'S' || wParam == 'D') {
+                    selectedDialogueOption = 1;
+                } else if (wParam == VK_RETURN || wParam == VK_SPACE) {
+                    if (selectedDialogueOption == 0) {
+                        whiteFadeToVictory = true;
+                        whiteFadeTimer = 2.0f;
+                        dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                        if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                        currentTalkingNPC = nullptr;
+                    } else {
+                        dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                        if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                        currentTalkingNPC = nullptr;
                     }
                 }
             }
@@ -6062,29 +5929,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     TryLoadAssets();
     GenerateWorld();
     Pathfinder::Init(worldMap, CheckClawCollision);
-    
-    if (!preGamePhase) {
-        SpawnEnemies();
-    }
+    SpawnEnemies();
     SpawnMedkit();
     InitClaws();
     InitThreadPool();
-    
-    if (preGamePhase) {
-        percyX = player.x + 2.0f * FastCos(player.angle);
-        percyY = player.y + 2.0f * FastSin(player.angle);
-        
-        wchar_t exePath[MAX_PATH];
-        GetModuleFileNameW(NULL, exePath, MAX_PATH);
-        wchar_t* lastSlash = wcsrchr(exePath, L'\\');
-        if (!lastSlash) lastSlash = wcsrchr(exePath, L'/');
-        if (lastSlash) *lastSlash = L'\0';
-        
-        wchar_t dialoguePath[MAX_PATH];
-        swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\percy.json", exePath);
-        
-        NPCSystem::SpawnNPC(percyX, percyY, L"Percy", percyPixels, percyW, percyH, percyPixels, percyW, percyH, dialoguePath);
-    }
     
     enemies.reserve(64);
     bullets.reserve(32);
@@ -6171,49 +6019,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     postBossPhase = false;
                     victoryScreen = true;
                     NPCSystem::ClearNPCs();
-                }
-            }
-            
-            if (cutsceneActive) {
-                cutsceneTimer += deltaTime;
-                
-                if (cutsceneState == 1) {
-                    float dx = percyX - cutsceneEnemyX;
-                    float dy = percyY - cutsceneEnemyY;
-                    float dist = sqrtf(dx*dx + dy*dy);
-                    
-                    if (dist > 0.5f) {
-                        float speed = 3.0f;
-                        cutsceneEnemyX += (dx / dist) * speed * deltaTime;
-                        cutsceneEnemyY += (dy / dist) * speed * deltaTime;
-                    } else {
-                        cutsceneState = 2;
-                        cutsceneTimer = 0;
-                        percySpriteState = 1;
-                    }
-                }
-                else if (cutsceneState == 2) {
-                    if (cutsceneTimer > 0.5f) {
-                        cutsceneState = 3;
-                        cutsceneTimer = 0;
-                        percySpriteState = 2;
-                    }
-                }
-                else if (cutsceneState == 3) {
-                    if (cutsceneTimer > 1.0f) {
-                        cutsceneState = 4;
-                        percyDead = true;
-                        cutsceneActive = false;
-                        preGamePhase = false;
-                        
-                        for (auto& npc : NPCSystem::npcs) {
-                            if (npc.name == L"Percy") {
-                                npc.active = false;
-                            }
-                        }
-                        
-                        SpawnEnemies();
-                    }
                 }
             }
         }

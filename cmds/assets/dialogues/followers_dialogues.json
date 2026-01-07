@@ -1,6 +1,6 @@
 {
-    "name": "Follower",
-    "dialogue": {
+    "Name": "Follower",
+    "Dialogue": {
         "line1": "Nice work out there Sir, that stuff is impressive",
         "line2": "Wow you just killed an elder god, thats insane",
         "line3": "I wouldn't have expected less from you Sir",
