@@ -1,0 +1,123 @@
+@Name: "Lazarell"
+@Color: "Light Blue"
+@D-Color: "White"
+@Dialogue: {
+    @Line[1]: "Well Done Lance, You did the Organization proud. You have just completed your task"
+    @Line[2]: "of eliminating a Otherworthy Elder God, those poor townsfolk are free of its influence now."
+    @Line[3]: "Are you ready to get out of here?"
+    @Options: {
+        @Option[1]: {
+            @Line[1]: "Yes"
+            @Response[1]: "Affirmative response"
+        }
+
+        @Option[2]: {
+            @Line[1]: "Not yet"
+            @Response[2]: "Negative response"
+        }
+
+        @Option[3]: {
+            @Line[1]: "So Who made us anyways?"
+            @Response[3]: "Respond to the question"
+        }
+
+        @Option[4]: {
+            @Line[1]: "Debug Line"
+            @Response[4]: "Debug response"
+        }
+
+        @Response: {
+            @1: {
+                @Line[1]: "Excellent. The extraction team is on their way. Good work, Agent."
+                @Exit: true
+            }
+
+            @2: {
+                @Line[1]: "Take your time. Radio in when you're ready for extraction."
+                @Exit: true
+            }
+
+            @3: {
+                @Line[1]: "It's Patrick Andrew Cortez, You should know this by now"
+                @Return: true
+            }
+            @4: {
+                @Line[1]: "Debug Line 1"
+                Options: {
+                    @Option[1]: {
+                        @Line[1]: "Debug Line 2"
+                        @Response[1]: "Debug response"
+                    }
+                    @Option[2]: {
+                        @Line[1]: "Debug Line 3"
+                        @Response[2]: "Debug response"
+                    }
+                    @Option[3]: {
+                        @Line[1]: "Debug Line 4"
+                        @Response[3]: "Debug response"
+                    }
+                    @Option[4]: {
+                        @Line[1]: "Debug Error 1"
+                        @Response[4]: "Debug response"
+                    }
+
+                    @Response: {
+                        @1: {
+                            @Line[1]: "Debug Line 3"
+                            @Exit: true
+                        }
+                        @2: {
+                            @Line[1]: "Debug Line 4"
+                            @Return: true
+                        }
+                        @3: {
+                            @Line[1]: "Debug Line 5"
+                            @Return: true
+                        }
+                        @4: {
+                            @Line[1]: "Debug Line 6"
+                            
+                            @Options:{
+                                @Option[1]: {
+                                    @Line[1]: "Debug Line 7"
+                                    @Response[1]: "Debug response"
+                                }
+                                @Option[2]: {
+                                    @Line[1]: "Debug Line 8"
+                                    @Response[2]: "Debug response"
+                                }
+                                @Option[3]: {
+                                    @Line[1]: "Debug Line 9"
+                                    @Response[3]: "Debug response"
+                                }
+                                @Option[4]: {
+                                    @Line[1]: "Debug Line 10"
+                                    @Response[4]: "Debug response"
+                                }
+
+                                @Response: {
+                                    @1: {
+                                        @Line[1]: "Debug Line 11"
+                                        @Exit: true
+                                    }
+                                    @2: {
+                                        @Line[1]: "Debug Line 12"
+                                        @Return: true
+                                    }
+                                    @3: {
+                                        @Line[1]: "Debug Line 13"
+                                        @Return: true
+                                    }
+                                    @4: {
+                                        @Line[1]: "Debug Line 14"
+                                        @Return: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

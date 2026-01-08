@@ -795,10 +795,7 @@ std::vector<RocketTrail> rocketTrails;
 std::vector<Explosion> explosions;
 
 bool postBossPhase = false;
-DialogueSystem::Dialogue currentDialogue;
-DialogueSystem::DialogueState dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-int dialogueLineIndex = 0;
-int selectedDialogueOption = 0;
+DialogueSystem::DialogueController dialogueController;
 NPCSystem::NPC* currentTalkingNPC = nullptr;
 float whiteFadeTimer = 0;
 bool whiteFadeToVictory = false;
@@ -3947,7 +3944,7 @@ void UpdateBullets(float deltaTime) {
                             score++;
                             PlayScoreSound();
                             if (score > highScore) { highScore = score; SaveHighScore(); }
-                            if (score >= 300 && !bossActive && !preBossPhase) { preBossPhase = true; preBossTimer = 30.0f; }
+                            if (score >= 1000 && !bossActive && !preBossPhase) { preBossPhase = true; preBossTimer = 30.0f; }
                         }
                     }
                 }
@@ -3984,13 +3981,13 @@ void UpdateBullets(float deltaTime) {
                                 wchar_t* lastSlash = wcsrchr(exePath, L'\\');
                                 if (lastSlash) *lastSlash = L'\0';
                                 wchar_t dialoguePath[MAX_PATH];
-                                swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\leader_dialogue.json", exePath);
+                                swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\leader.line", exePath);
                                 
                                 NPCSystem::ClearNPCs();
                                 NPCSystem::SpawnNPC(32.0f, 28.0f, L"Leader", leaderIdlePixels, leaderIdleW, leaderIdleH, leaderTalkingPixels, leaderTalkingW, leaderTalkingH, dialoguePath);
                                 
                                 wchar_t followerDialoguePath[MAX_PATH];
-                                swprintf(followerDialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\followers_dialogues.json", exePath);
+                                swprintf(followerDialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\followers.line", exePath);
                                 NPCSystem::SpawnNPC(29.0f, 28.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
                                 NPCSystem::SpawnNPC(35.0f, 28.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
                                 NPCSystem::SpawnNPC(27.0f, 30.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
@@ -4106,7 +4103,7 @@ void UpdateBullets(float deltaTime) {
                     }
 
                     // Check Score for Boss Trigger
-                    if (score >= 300 && !bossActive && !preBossPhase) {
+                    if (score >= 1000 && !bossActive && !preBossPhase) {
                         preBossPhase = true;
                         preBossTimer = 30.0f;
                         
@@ -4119,7 +4116,7 @@ void UpdateBullets(float deltaTime) {
                     }
                     
                     // Marshall Spawn Trigger
-                    if (score >= 50 && !marshallSpawned) {
+                    if (score >= 250 && !marshallSpawned) {
                         Enemy marshall;
                         int attempts = 0;
                         do {
@@ -4233,13 +4230,13 @@ void UpdateBullets(float deltaTime) {
                         wchar_t* lastSlash = wcsrchr(exePath, L'\\');
                         if (lastSlash) *lastSlash = L'\0';
                         wchar_t dialoguePath[MAX_PATH];
-                        swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\leader_dialogue.json", exePath);
+                        swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\leader.line", exePath);
                         
                         NPCSystem::ClearNPCs();
                         NPCSystem::SpawnNPC(32.0f, 28.0f, L"Leader", leaderIdlePixels, leaderIdleW, leaderIdleH, leaderTalkingPixels, leaderTalkingW, leaderTalkingH, dialoguePath);
                         
                         wchar_t followerDialoguePath[MAX_PATH];
-                        swprintf(followerDialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\followers_dialogues.json", exePath);
+                        swprintf(followerDialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\followers.line", exePath);
                         NPCSystem::SpawnNPC(29.0f, 28.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
                         NPCSystem::SpawnNPC(35.0f, 28.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
                         NPCSystem::SpawnNPC(27.0f, 30.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
@@ -4792,8 +4789,8 @@ void UpdatePlayer(float deltaTime) {
     
     isMoving = false;
     
-    if (dialogueState != DialogueSystem::DIALOGUE_INACTIVE) {
-        return; // Block movement during dialogue
+    if (dialogueController.IsActive()) {
+        return;
     }
     
     if (!spectatorMode) {
@@ -5354,7 +5351,7 @@ void RenderGame(HDC hdc) {
     swprintf(info, 128, L"WASD=Move | Mouse=Look | LClick=Shoot | R=Reload | ESC=Quit");
     TextOutW(memDC, 10, SCREEN_HEIGHT - 25, info, (int)wcslen(info));
     
-    if (postBossPhase && dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
+    if (postBossPhase && !dialogueController.IsActive()) {
         NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
         if (nearNPC && !nearNPC->dialoguePath.empty()) {
             HFONT hOldPromptFont = (HFONT)SelectObject(memDC, hFontHUD);
@@ -5368,12 +5365,14 @@ void RenderGame(HDC hdc) {
         }
     }
     
-    if (dialogueState == DialogueSystem::DIALOGUE_ACTIVE || dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT) {
-        if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
-            auto& line = currentDialogue.lines[dialogueLineIndex];
-            bool showOpts = (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT);
-            DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, currentDialogue.name, line.text, showOpts, line.option1, line.option2, selectedDialogueOption);
-        }
+    if (dialogueController.IsActive()) {
+        std::wstring name = dialogueController.GetSpeakerName();
+        std::wstring text = dialogueController.GetCurrentText();
+        bool showOpts = dialogueController.IsShowingOptions();
+        std::vector<std::wstring> opts = dialogueController.GetCurrentOptions();
+        int selectedOpt = dialogueController.GetSelectedOptionIndex();
+        DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, name, text, showOpts, opts, selectedOpt, 
+            dialogueController.GetNameColor(), dialogueController.GetDialogueColor());
     }
     
     if (whiteFadeToVictory && whiteFadeTimer > 0) {
@@ -5653,8 +5652,42 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                             // Pitch is shared or reset? Let's keep current pitch or reset
                         }
                         consoleBuffer = L"";
+                    } else if (consoleBuffer == L"skip") {
+                        bossDead = true;
+                        bossActive = false;
+                        preBossPhase = false;
+                        phase2Active = false;
+                        forceFieldActive = false;
+                        activeLaserClaw = -1;
+                        postBossPhase = true;
+                        enemies.clear();
+                        pendingEnemies.clear();
+                        
+                        wchar_t exePath[MAX_PATH];
+                        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+                        wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+                        if (lastSlash) *lastSlash = L'\0';
+                        wchar_t dialoguePath[MAX_PATH];
+                        swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\leader.line", exePath);
+                        
+                        NPCSystem::ClearNPCs();
+                        NPCSystem::SpawnNPC(32.0f, 28.0f, L"Leader", leaderIdlePixels, leaderIdleW, leaderIdleH, leaderTalkingPixels, leaderTalkingW, leaderTalkingH, dialoguePath);
+                        
+                        wchar_t followerDialoguePath[MAX_PATH];
+                        swprintf(followerDialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\followers.line", exePath);
+                        NPCSystem::SpawnNPC(29.0f, 28.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
+                        NPCSystem::SpawnNPC(35.0f, 28.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
+                        NPCSystem::SpawnNPC(27.0f, 30.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
+                        NPCSystem::SpawnNPC(37.0f, 30.0f, L"Follower", followerPixels, followerW, followerH, followerPixels, followerW, followerH, followerDialoguePath);
+                        
+                        wchar_t victoryMusicPath[MAX_PATH];
+                        swprintf(victoryMusicPath, MAX_PATH, L"open \"%ls\\assets\\sound-effects\\victory.mp3\" type mpegvideo alias victory", exePath);
+                        mciSendStringW(victoryMusicPath, NULL, 0, NULL);
+                        mciSendStringW(L"play victory repeat", NULL, 0, NULL);
+                        
+                        consoleBuffer = L"";
                     } else if (consoleBuffer == L"help") {
-                        wcscpy(consoleError, L"Commands: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode on/off, spec on/off, help, exit");
+                        wcscpy(consoleError, L"Commands: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode on/off, spec on/off, skip, help, exit");
                         consoleBuffer = L"";
                     } else {
                         wcscpy(consoleError, L"Unknown command");
@@ -5681,11 +5714,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wParam == VK_ESCAPE) PostQuitMessage(0);
             if (gunUpgraded && !consoleActive) {
                 int nextWeapon = currentWeapon;
-                if (wParam == '1' && dialogueState != DialogueSystem::DIALOGUE_OPTION_SELECT) nextWeapon = 0;
-                else if (wParam == '2' && dialogueState != DialogueSystem::DIALOGUE_OPTION_SELECT) nextWeapon = 1;
+                if (wParam == '1' && !dialogueController.IsShowingOptions()) nextWeapon = 0;
+                else if (wParam == '2' && !dialogueController.IsShowingOptions()) nextWeapon = 1;
                 else if (wParam == '3' && bazookaUnlocked) nextWeapon = 2;
                 
-                if (nextWeapon != currentWeapon && dialogueState != DialogueSystem::DIALOGUE_OPTION_SELECT) {
+                if (nextWeapon != currentWeapon && !dialogueController.IsShowingOptions()) {
                     weaponAmmo[currentWeapon] = ammo;
                     currentWeapon = nextWeapon;
                     ammo = weaponAmmo[currentWeapon];
@@ -5697,69 +5730,41 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             
             if (wParam == 'E' && postBossPhase && !consoleActive) {
-                if (dialogueState == DialogueSystem::DIALOGUE_INACTIVE) {
+                if (!dialogueController.IsActive()) {
                     NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
                     if (nearNPC && !nearNPC->dialoguePath.empty()) {
                         currentTalkingNPC = nearNPC;
                         nearNPC->isTalking = true;
-                        bool isFollower = (nearNPC->name == L"Follower");
-                        currentDialogue = DialogueSystem::LoadDialogueFromJSON(nearNPC->dialoguePath.c_str(), isFollower);
-                        dialogueState = DialogueSystem::DIALOGUE_ACTIVE;
-                        dialogueLineIndex = 0;
-                        
-                       
-                        if (dialogueLineIndex < (int)currentDialogue.lines.size() && 
-                            currentDialogue.lines[dialogueLineIndex].hasOptions) {
-                            dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
-                            selectedDialogueOption = 0;
-                        }
-                    }
-                } else if (dialogueState == DialogueSystem::DIALOGUE_ACTIVE) {
-                    if (dialogueLineIndex < (int)currentDialogue.lines.size()) {
-                        dialogueLineIndex++;
-                        if (dialogueLineIndex >= (int)currentDialogue.lines.size()) {
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        } else {
-                            
-                            if (currentDialogue.lines[dialogueLineIndex].hasOptions) {
-                                dialogueState = DialogueSystem::DIALOGUE_OPTION_SELECT;
-                                selectedDialogueOption = 0;
+                        if (dialogueController.LoadFromLine(nearNPC->dialoguePath.c_str())) {
+                            if (nearNPC->name == L"Follower") {
+                                dialogueController.StartRandom();
+                            } else {
+                                dialogueController.Start();
                             }
                         }
                     }
-                } else if (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT) {
-                    if (wParam == VK_RETURN || wParam == VK_SPACE) {
-                        if (selectedDialogueOption == 0) {
-                            whiteFadeToVictory = true;
-                            whiteFadeTimer = 2.0f;
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        } else {
-                            dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                            if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                            currentTalkingNPC = nullptr;
-                        }
+                } else if (!dialogueController.IsShowingOptions()) {
+                    dialogueController.AdvanceLine();
+                    if (!dialogueController.IsActive()) {
+                        if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
+                        currentTalkingNPC = nullptr;
                     }
                 }
             }
             
-            if (dialogueState == DialogueSystem::DIALOGUE_OPTION_SELECT && !consoleActive) {
+            if (dialogueController.IsShowingOptions() && !consoleActive) {
                 if (wParam == VK_UP || wParam == VK_LEFT || wParam == 'W' || wParam == 'A') {
-                    selectedDialogueOption = 0;
+                    dialogueController.MoveSelectionLeft();
                 } else if (wParam == VK_DOWN || wParam == VK_RIGHT || wParam == 'S' || wParam == 'D') {
-                    selectedDialogueOption = 1;
+                    dialogueController.MoveSelectionRight();
                 } else if (wParam == VK_RETURN || wParam == VK_SPACE) {
-                    if (selectedDialogueOption == 0) {
-                        whiteFadeToVictory = true;
-                        whiteFadeTimer = 2.0f;
-                        dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
-                        if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
-                        currentTalkingNPC = nullptr;
-                    } else {
-                        dialogueState = DialogueSystem::DIALOGUE_INACTIVE;
+                    int selectedIdx = dialogueController.GetSelectedOptionIndex();
+                    dialogueController.ConfirmSelection();
+                    if (dialogueController.IsFinished()) {
+                        if (selectedIdx == 0) {
+                            whiteFadeToVictory = true;
+                            whiteFadeTimer = 2.0f;
+                        }
                         if (currentTalkingNPC) currentTalkingNPC->isTalking = false;
                         currentTalkingNPC = nullptr;
                     }

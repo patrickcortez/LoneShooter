@@ -5,6 +5,8 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <stack>
+#include "line_parser.hpp"
 
 namespace DialogueSystem {
 
@@ -200,7 +202,25 @@ inline void RenderSpriteToDC(HDC hdc, DWORD* pixels, int pxW, int pxH, int destX
     StretchDIBits(hdc, destX, destY, destW, destH, 0, 0, pxW, pxH, pixels, &bi, DIB_RGB_COLORS, SRCCOPY);
 }
 
-inline void RenderDialogueBox(HDC hdc, int screenW, int screenH, const std::wstring& name, const std::wstring& text, bool showOptions, const std::wstring& opt1, const std::wstring& opt2, int selectedOption) {
+inline COLORREF ResolveColor(const std::wstring& colorName) {
+    if (colorName == L"Red") return RGB(255, 50, 50);
+    if (colorName == L"Green") return RGB(50, 255, 50);
+    if (colorName == L"Blue") return RGB(50, 50, 255);
+    if (colorName == L"Yellow") return RGB(255, 255, 50);
+    if (colorName == L"Cyan") return RGB(50, 255, 255);
+    if (colorName == L"Magenta") return RGB(255, 50, 255);
+    if (colorName == L"White") return RGB(255, 255, 255);
+    if (colorName == L"Black") return RGB(0, 0, 0);
+    if (colorName == L"Orange") return RGB(255, 165, 0);
+    if (colorName == L"Purple") return RGB(160, 32, 240);
+    if (colorName == L"Pink") return RGB(255, 192, 203);
+    if (colorName == L"Gray") return RGB(128, 128, 128);
+    if (colorName == L"Light Blue") return RGB(173, 216, 230);
+    if (colorName == L"Gold") return RGB(200, 180, 100);
+    return RGB(255, 255, 255); // Default White
+}
+
+inline void RenderDialogueBox(HDC hdc, int screenW, int screenH, const std::wstring& name, const std::wstring& text, bool showOptions, const std::vector<std::wstring>& options, int selectedOption, const std::wstring& nameColorStr = L"Gold", const std::wstring& textColorStr = L"White") {
     int boxH = 140;
     int boxY = screenH - boxH - 20;
     int boxX = 50;
@@ -230,69 +250,51 @@ inline void RenderDialogueBox(HDC hdc, int screenW, int screenH, const std::wstr
     HFONT textFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
     
     HFONT oldFont = (HFONT)SelectObject(hdc, nameFont);
-    SetTextColor(hdc, RGB(200, 180, 100));
+    SetTextColor(hdc, ResolveColor(nameColorStr));
     TextOutW(hdc, boxX + 20, boxY + 12, name.c_str(), (int)name.length());
     
     SelectObject(hdc, textFont);
-    SetTextColor(hdc, RGB(255, 255, 255));
+    SetTextColor(hdc, ResolveColor(textColorStr));
     RECT textRect = {boxX + 20, boxY + 45, boxX + boxW - 20, boxY + 95};
     DrawTextW(hdc, text.c_str(), -1, &textRect, DT_LEFT | DT_WORDBREAK);
     
-    if (showOptions) {
+    if (showOptions && options.size() > 0) {
         int choiceW = 200;
         int choiceH = 30;
-        int optY = boxY - choiceH - 60;
+        int optY = boxY - choiceH - 10;
         int spacing = 20;
-        int startX = boxX + 60;
+        int totalW = (int)options.size() * choiceW + ((int)options.size() - 1) * spacing;
+        int startX = boxX + (boxW - totalW) / 2;
         
-        if (selectedOption == 0 && dialogueChoiceSelectedPixels) {
-            RenderSpriteToDC(hdc, dialogueChoiceSelectedPixels, dialogueChoiceSelectedW, dialogueChoiceSelectedH, startX, optY, choiceW, choiceH);
-        } else if (dialogueChoicePixels) {
-            RenderSpriteToDC(hdc, dialogueChoicePixels, dialogueChoiceW, dialogueChoiceH, startX, optY, choiceW, choiceH);
-        } else {
-            HBRUSH bgBrush = CreateSolidBrush((selectedOption == 0) ? RGB(100, 100, 0) : RGB(40, 40, 50));
-            RECT bgRect = {startX, optY, startX + choiceW, optY + choiceH};
-            FillRect(hdc, &bgRect, bgBrush);
-            DeleteObject(bgBrush);
+        for (int i = 0; i < (int)options.size(); i++) {
+            int optX = startX + i * (choiceW + spacing);
+            bool isSelected = (selectedOption == i);
             
-            HPEN borderPen = CreatePen(PS_SOLID, 2, (selectedOption == 0) ? RGB(255, 255, 0) : RGB(100, 100, 100));
-            HPEN oldPen = (HPEN)SelectObject(hdc, borderPen);
-            HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-            Rectangle(hdc, startX, optY, startX + choiceW, optY + choiceH);
-            SelectObject(hdc, oldBrush);
-            SelectObject(hdc, oldPen);
-            DeleteObject(borderPen);
-        }
-        
-        int opt2X = startX + choiceW + spacing;
-        if (selectedOption == 1 && dialogueChoiceSelectedPixels) {
-            RenderSpriteToDC(hdc, dialogueChoiceSelectedPixels, dialogueChoiceSelectedW, dialogueChoiceSelectedH, opt2X, optY, choiceW, choiceH);
-        } else if (dialogueChoicePixels) {
-            RenderSpriteToDC(hdc, dialogueChoicePixels, dialogueChoiceW, dialogueChoiceH, opt2X, optY, choiceW, choiceH);
-        } else {
-            HBRUSH bgBrush = CreateSolidBrush((selectedOption == 1) ? RGB(100, 100, 0) : RGB(40, 40, 50));
-            RECT bgRect = {opt2X, optY, opt2X + choiceW, optY + choiceH};
-            FillRect(hdc, &bgRect, bgBrush);
-            DeleteObject(bgBrush);
+            if (isSelected && dialogueChoiceSelectedPixels) {
+                RenderSpriteToDC(hdc, dialogueChoiceSelectedPixels, dialogueChoiceSelectedW, dialogueChoiceSelectedH, optX, optY, choiceW, choiceH);
+            } else if (dialogueChoicePixels) {
+                RenderSpriteToDC(hdc, dialogueChoicePixels, dialogueChoiceW, dialogueChoiceH, optX, optY, choiceW, choiceH);
+            } else {
+                HBRUSH bgBrush = CreateSolidBrush(isSelected ? RGB(100, 100, 0) : RGB(40, 40, 50));
+                RECT bgRect = {optX, optY, optX + choiceW, optY + choiceH};
+                FillRect(hdc, &bgRect, bgBrush);
+                DeleteObject(bgBrush);
+                
+                HPEN borderPen = CreatePen(PS_SOLID, 2, isSelected ? RGB(255, 255, 0) : RGB(100, 100, 100));
+                HPEN oldPen = (HPEN)SelectObject(hdc, borderPen);
+                HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+                Rectangle(hdc, optX, optY, optX + choiceW, optY + choiceH);
+                SelectObject(hdc, oldBrush);
+                SelectObject(hdc, oldPen);
+                DeleteObject(borderPen);
+            }
             
-            HPEN borderPen = CreatePen(PS_SOLID, 2, (selectedOption == 1) ? RGB(255, 255, 0) : RGB(100, 100, 100));
-            HPEN oldPen = (HPEN)SelectObject(hdc, borderPen);
-            HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-            Rectangle(hdc, opt2X, optY, opt2X + choiceW, optY + choiceH);
-            SelectObject(hdc, oldBrush);
-            SelectObject(hdc, oldPen);
-            DeleteObject(borderPen);
+            SetTextColor(hdc, isSelected ? RGB(255, 255, 0) : RGB(180, 180, 180));
+            SIZE sz;
+            GetTextExtentPoint32W(hdc, options[i].c_str(), (int)options[i].length(), &sz);
+            TextOutW(hdc, optX + (choiceW - sz.cx) / 2, optY + (choiceH - sz.cy) / 2, options[i].c_str(), (int)options[i].length());
         }
-        
-        SetTextColor(hdc, (selectedOption == 0) ? RGB(255, 255, 0) : RGB(180, 180, 180));
-        SIZE sz1, sz2;
-        GetTextExtentPoint32W(hdc, opt1.c_str(), (int)opt1.length(), &sz1);
-        TextOutW(hdc, startX + (choiceW - sz1.cx) / 2, optY + (choiceH - sz1.cy) / 2, opt1.c_str(), (int)opt1.length());
-        
-        SetTextColor(hdc, (selectedOption == 1) ? RGB(255, 255, 0) : RGB(180, 180, 180));
-        GetTextExtentPoint32W(hdc, opt2.c_str(), (int)opt2.length(), &sz2);
-        TextOutW(hdc, opt2X + (choiceW - sz2.cx) / 2, optY + (choiceH - sz2.cy) / 2, opt2.c_str(), (int)opt2.length());
-    } else {
+    } else if (!showOptions) {
         SetTextColor(hdc, RGB(150, 150, 150));
         TextOutA(hdc, boxX + boxW - 150, boxY + boxH - 30, "[E] Continue", 12);
     }
@@ -301,5 +303,268 @@ inline void RenderDialogueBox(HDC hdc, int screenW, int screenH, const std::wstr
     DeleteObject(nameFont);
     DeleteObject(textFont);
 }
+
+class DialogueController {
+private:
+    LineParser::LineDialogue dialogue;
+    std::stack<LineParser::LineOptionsBlock*> optionStack;
+    std::vector<std::pair<int, std::wstring>>* currentLines;
+    size_t currentLineIndex;
+    bool showingOptions;
+    bool dialogueActive;
+    bool dialogueFinished;
+    int selectedOptionIndex;
+    bool randomLineMode;
+    bool pendingReturn;
+    bool pendingExit;
+    LineParser::LineOptionsBlock* pendingNestedOptions;
+    
+public:
+    DialogueController() : currentLines(nullptr), currentLineIndex(0), 
+                          showingOptions(false), dialogueActive(false), 
+                          dialogueFinished(false), selectedOptionIndex(0),
+                          randomLineMode(false), pendingReturn(false),
+                          pendingExit(false),
+                          pendingNestedOptions(nullptr) {}
+    
+    ~DialogueController() {
+        Cleanup();
+    }
+    
+    void Cleanup() {
+        LineParser::FreeLineDialogue(dialogue);
+        while (!optionStack.empty()) optionStack.pop();
+        currentLines = nullptr;
+        currentLineIndex = 0;
+        showingOptions = false;
+        dialogueActive = false;
+        dialogueFinished = false;
+        selectedOptionIndex = 0;
+        randomLineMode = false;
+        pendingReturn = false;
+        pendingExit = false;
+        pendingNestedOptions = nullptr;
+    }
+    
+    bool LoadFromLine(const wchar_t* path) {
+        Cleanup();
+        dialogue = LineParser::ParseLineFile(path);
+        if (dialogue.name.empty() && dialogue.introLines.empty()) {
+            return false;
+        }
+        return true;
+    }
+    
+    void Start() {
+        if (dialogue.name.empty() && dialogue.introLines.empty()) return;
+        currentLines = &dialogue.introLines;
+        currentLineIndex = 0;
+        showingOptions = false;
+        dialogueActive = true;
+        dialogueFinished = false;
+        selectedOptionIndex = 0;
+        randomLineMode = false;
+        if (dialogue.hasOptions && dialogue.rootOptions) {
+            optionStack.push(dialogue.rootOptions);
+        }
+    }
+    
+    void StartRandom() {
+        if (dialogue.name.empty() && dialogue.introLines.empty()) return;
+        currentLines = &dialogue.introLines;
+        if (currentLines->empty()) return;
+        currentLineIndex = rand() % currentLines->size();
+        showingOptions = false;
+        dialogueActive = true;
+        dialogueFinished = false;
+        selectedOptionIndex = 0;
+        randomLineMode = true;
+    }
+    
+    void AdvanceLine() {
+        if (!dialogueActive || showingOptions) return;
+        
+        if (randomLineMode) {
+            dialogueFinished = true;
+            dialogueActive = false;
+            return;
+        }
+        
+        currentLineIndex++;
+        if (currentLines && currentLineIndex >= currentLines->size()) {
+            if (pendingExit) {
+                dialogueFinished = true;
+                dialogueActive = false;
+            } else if (pendingNestedOptions) {
+                optionStack.push(pendingNestedOptions);
+                pendingNestedOptions = nullptr;
+                showingOptions = true;
+                selectedOptionIndex = 0;
+            } else if (pendingReturn) {
+                pendingReturn = false;
+                showingOptions = true;
+                selectedOptionIndex = 0;
+            } else {
+                bool hasOpts = (!optionStack.empty() && optionStack.top() && optionStack.top()->options.size() > 0) ||
+                              (dialogue.hasOptions && dialogue.rootOptions && dialogue.rootOptions->options.size() > 0);
+                if (hasOpts) {
+                    currentLineIndex = currentLines->size() - 1;
+                    if (optionStack.empty() && dialogue.rootOptions) {
+                        optionStack.push(dialogue.rootOptions);
+                    }
+                    showingOptions = true;
+                    selectedOptionIndex = 0;
+                } else {
+                    dialogueFinished = true;
+                    dialogueActive = false;
+                }
+            }
+        }
+    }
+    
+    void SelectOption(int optionIndex) {
+        if (!showingOptions || optionStack.empty()) return;
+        
+        LineParser::LineOptionsBlock* currentBlock = optionStack.top();
+        if (optionIndex < 0 || optionIndex >= (int)currentBlock->options.size()) return;
+        
+        LineParser::LineOption& selectedOpt = currentBlock->options[optionIndex];
+        int responseId = selectedOpt.responseId;
+        
+        // Initialize pending flags from Option-level config
+        pendingReturn = selectedOpt.returnToParent;
+        pendingExit = selectedOpt.exitDialogue;
+        pendingNestedOptions = nullptr;
+
+        auto it = currentBlock->responses.find(responseId);
+        if (it != currentBlock->responses.end()) {
+            LineParser::LineResponse& resp = it->second;
+            
+            // Merge Response-level flags (OR logic)
+            pendingReturn = pendingReturn || resp.returnToParent;
+            pendingExit = pendingExit || resp.exitDialogue;
+            pendingNestedOptions = (resp.hasNestedOptions) ? resp.nestedOptions : nullptr;
+            
+            if (!resp.lines.empty()) {
+                currentLines = &resp.lines;
+                currentLineIndex = 0;
+                showingOptions = false;
+            } else {
+                // No lines, execute logic immediately
+                if (pendingExit) {
+                    dialogueFinished = true;
+                    dialogueActive = false;
+                    showingOptions = false;
+                } else if (pendingNestedOptions) {
+                    optionStack.push(pendingNestedOptions);
+                    pendingNestedOptions = nullptr;
+                    showingOptions = true;
+                    selectedOptionIndex = 0;
+                } else if (pendingReturn) {
+                    pendingReturn = false;
+                    showingOptions = true;
+                    selectedOptionIndex = 0;
+                } else {
+                    // Logic: if we didn't exit, didn't return, didn't nest, and had no lines...
+                    // Check if we have options to return to (implicit loop)
+                    bool hasOpts = (!optionStack.empty() && optionStack.top() && optionStack.top()->options.size() > 0) ||
+                                  (dialogue.hasOptions && dialogue.rootOptions && dialogue.rootOptions->options.size() > 0);
+                    
+                    if (hasOpts) {
+                        showingOptions = true;
+                        selectedOptionIndex = 0;
+                    } else {
+                        dialogueFinished = true;
+                        dialogueActive = false;
+                        showingOptions = false;
+                    }
+                }
+            }
+        } else {
+            // No response found. Execute Option-level flags immediately.
+            if (pendingExit) {
+                dialogueFinished = true;
+                dialogueActive = false;
+                showingOptions = false;
+            } else if (pendingReturn) {
+                pendingReturn = false;
+                showingOptions = true;
+                selectedOptionIndex = 0;
+            } else {
+                // Default fallback: Implicit loop if possible
+                bool hasOpts = (!optionStack.empty() && optionStack.top() && optionStack.top()->options.size() > 0) ||
+                              (dialogue.hasOptions && dialogue.rootOptions && dialogue.rootOptions->options.size() > 0);
+                
+                if (hasOpts) {
+                    showingOptions = true;
+                    selectedOptionIndex = 0;
+                } else {
+                    dialogueFinished = true;
+                    dialogueActive = false;
+                    showingOptions = false;
+                }
+            }
+        }
+    }
+    
+    void MoveSelectionUp() {
+        if (showingOptions && selectedOptionIndex > 0) {
+            selectedOptionIndex--;
+        }
+    }
+    
+    std::wstring GetNameColor() const { return dialogue.nameColor; }
+    std::wstring GetDialogueColor() const { return dialogue.dialogueColor; }
+    
+    void MoveSelectionDown() {
+        if (showingOptions && !optionStack.empty()) {
+            if (selectedOptionIndex < (int)optionStack.top()->options.size() - 1) {
+                selectedOptionIndex++;
+            }
+        }
+    }
+    
+    void MoveSelectionLeft() {
+        MoveSelectionUp();
+    }
+    
+    void MoveSelectionRight() {
+        MoveSelectionDown();
+    }
+    
+    void ConfirmSelection() {
+        if (showingOptions) {
+            SelectOption(selectedOptionIndex);
+        }
+    }
+    
+    bool IsActive() const { return dialogueActive; }
+    bool IsFinished() const { return dialogueFinished; }
+    bool IsShowingOptions() const { return showingOptions; }
+    int GetSelectedOptionIndex() const { return selectedOptionIndex; }
+    
+    std::wstring GetCurrentText() const {
+        if (!currentLines || currentLineIndex >= currentLines->size()) return L"";
+        return (*currentLines)[currentLineIndex].second;
+    }
+    
+    std::wstring GetSpeakerName() const {
+        return dialogue.name;
+    }
+    
+    std::vector<std::wstring> GetCurrentOptions() const {
+        std::vector<std::wstring> result;
+        if (!showingOptions || optionStack.empty()) return result;
+        for (const auto& opt : optionStack.top()->options) {
+            result.push_back(opt.displayText);
+        }
+        return result;
+    }
+    
+    size_t GetOptionCount() const {
+        if (!showingOptions || optionStack.empty()) return 0;
+        return optionStack.top()->options.size();
+    }
+};
 
 }

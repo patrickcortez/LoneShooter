@@ -1,0 +1,50 @@
+@Name: "Example NPC"
+@Dialogue: {
+    @Line[1]: "Hello, I am an example NP"
+    @Line[2]: "This is a sample line and besides the Line is the [n] line ID. So its easy to navigate lines."
+    @Options:{
+        @Option[1]:{
+            @Line[1]: "This is an option with its option ID [n]"
+            @Response[1]: "This is a response and it'll go to the next response with its response ID [n]"        
+        }
+
+        @Option[2]:{
+            @Line[1]: "This is another option with its option ID [n]"
+            @Response[2]: "I am a sample response."        
+        }
+
+
+
+        @Response:{
+            @1:{
+                @Line[1]: "This is the first response, and this loops back to the previous line, because of the return."
+                @Return: true
+            }
+
+            @2:{
+                @Line[1]: "This is the second response, and this goes to the next line."
+                @Line[2]: "This line shows that people can nest options and responses."
+                @Options:{
+                    @Option[1]:{
+                        @Line[1]: "This is an option with its option ID [n], and you can nest how ever you want"
+                        @Response[1]: "This is a response and it'll go to the next response with its response ID [n]"        
+                    }
+
+                    @Response: {
+                        @1: {
+                            @Line[1]: "This is the first response, and this loops back to the previous line, because of the return."
+                            @Return: true
+                        }
+                    }
+                }
+                @Return: false
+            }
+
+            @3: {
+                @Line[1]: "This Line is where the dialogue ends and returns a true on a exit flag."
+                @Exit: true
+            }
+        }
+    }
+
+}

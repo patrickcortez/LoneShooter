@@ -1,0 +1,9 @@
+@Name: "Follower"
+@Dialogue: {
+    @Line[1]: "Nice work out there Sir, that stuff is impressive"
+    @Line[2]: "Wow you just killed an elder god, thats insane"
+    @Line[3]: "I wouldn't have expected less from you Sir"
+    @Line[4]: "Hows it been sir?"
+    @Line[5]: "You know I'd probably die if I was in your shoes"
+    @Line[6]: "I wish HQ would let me join you"
+}
