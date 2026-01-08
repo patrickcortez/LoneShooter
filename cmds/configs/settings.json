@@ -5,9 +5,7 @@
         "Width": 1024,
         "Height": 768,
         "Mouse Sensitivity": 1.0,
-        "Inverted": false,
-        "Vsync": true,
-        "FOV": 90
+        "Performance": false
     },
     "Version": "0.6"
 }

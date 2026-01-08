@@ -35,10 +35,6 @@ extern bool g_FullscreenMode;
 extern bool g_DevConsole;
 extern float g_MouseSensitivity;
 extern wchar_t g_GameVersion[32];
-extern bool g_Inverted;
-extern bool g_VSync;
-extern float g_FOV;
-extern float FOV;
 
 struct Resolution { int w, h; const wchar_t* name; };
 Resolution g_Resolutions[] = {
@@ -126,20 +122,6 @@ bool LoadSettingsJSON() {
         }
     }
     
-    const char* invertedVal = findValue("\"Inverted\"");
-    if (invertedVal) g_Inverted = parseBool(invertedVal);
-    
-    const char* vsyncVal = findValue("\"Vsync\"");
-    if (vsyncVal) g_VSync = parseBool(vsyncVal);
-    
-    const char* fovVal = findValue("\"FOV\"");
-    if (fovVal) {
-        g_FOV = (float)parseDouble(fovVal);
-        if (g_FOV < 60.0f) g_FOV = 60.0f;
-        if (g_FOV > 120.0f) g_FOV = 120.0f;
-        FOV = g_FOV * 3.14159265f / 180.0f;
-    }
-    
     for (int i = 0; i < g_NumResolutions; i++) {
         if (g_Resolutions[i].w == SCREEN_WIDTH && g_Resolutions[i].h == SCREEN_HEIGHT) {
             g_SelectedResolution = i;
@@ -173,9 +155,7 @@ void SaveSettingsJSON() {
     fprintf(f, "        \"Width\": %d,\n", SCREEN_WIDTH);
     fprintf(f, "        \"Height\": %d,\n", SCREEN_HEIGHT);
     fprintf(f, "        \"Mouse Sensitivity\": %.1f,\n", g_MouseSensitivity);
-    fprintf(f, "        \"Inverted\": %s,\n", g_Inverted ? "true" : "false");
-    fprintf(f, "        \"Vsync\": %s,\n", g_VSync ? "true" : "false");
-    fprintf(f, "        \"FOV\": %.0f\n", g_FOV);
+    fprintf(f, "        \"Performance\": false\n");
     fprintf(f, "    },\n");
     fprintf(f, "    \"Version\": \"%s\"\n", versionA);
     fprintf(f, "}\n");
@@ -190,10 +170,6 @@ void SaveSettingsJSON() {
 #define IDC_PLAY_BUTTON 1006
 #define IDC_CANCEL_BUTTON 1007
 #define IDC_VERSION_LABEL 1008
-#define IDC_INVERTED_CHECK 1009
-#define IDC_VSYNC_CHECK 1010
-#define IDC_FOV_SLIDER 1011
-#define IDC_FOV_LABEL 1012
 
 HWND g_hSettingsDialog = NULL;
 bool g_SettingsConfirmed = false;
@@ -278,34 +254,15 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             SendMessage(hConsole, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hConsole, BM_SETCHECK, g_DevConsole ? BST_CHECKED : BST_UNCHECKED, 0);
             
-            HWND hInverted = CreateWindowExW(0, L"BUTTON", L"Invert Mouse", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 30, 180, 150, 25, hwnd, (HMENU)IDC_INVERTED_CHECK, NULL, NULL);
-            SendMessage(hInverted, WM_SETFONT, (WPARAM)hFont, TRUE);
-            SendMessage(hInverted, BM_SETCHECK, g_Inverted ? BST_CHECKED : BST_UNCHECKED, 0);
-            
-            HWND hVsync = CreateWindowExW(0, L"BUTTON", L"VSync", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 200, 180, 100, 25, hwnd, (HMENU)IDC_VSYNC_CHECK, NULL, NULL);
-            SendMessage(hVsync, WM_SETFONT, (WPARAM)hFont, TRUE);
-            SendMessage(hVsync, BM_SETCHECK, g_VSync ? BST_CHECKED : BST_UNCHECKED, 0);
-            
-            CreateWindowExW(0, L"STATIC", L"FOV:", WS_CHILD | WS_VISIBLE, 30, 215, 40, 25, hwnd, NULL, NULL, NULL);
-            HWND hFovSlider = CreateWindowExW(0, TRACKBAR_CLASSW, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS, 70, 212, 250, 30, hwnd, (HMENU)IDC_FOV_SLIDER, NULL, NULL);
-            SendMessage(hFovSlider, TBM_SETRANGE, TRUE, MAKELPARAM(60, 120));
-            SendMessage(hFovSlider, TBM_SETPOS, TRUE, (int)g_FOV);
-            SendMessage(hFovSlider, TBM_SETTICFREQ, 10, 0);
-            
-            wchar_t fovText[32];
-            swprintf(fovText, 32, L"%.0f", g_FOV);
-            HWND hFovLabel = CreateWindowExW(0, L"STATIC", fovText, WS_CHILD | WS_VISIBLE | SS_CENTER, 325, 217, 40, 20, hwnd, (HMENU)IDC_FOV_LABEL, NULL, NULL);
-            SendMessage(hFovLabel, WM_SETFONT, (WPARAM)hFont, TRUE);
-            
             wchar_t verText[64];
             swprintf(verText, 64, L"Version: %ls", g_GameVersion);
-            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 255, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
+            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 195, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
             SendMessage(hVersion, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 285, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
+            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 230, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
             SendMessage(hPlay, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 285, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
+            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 230, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
             SendMessage(hCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
             
             HWND* children = new HWND[10];
@@ -319,13 +276,6 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 wchar_t sensText[32];
                 swprintf(sensText, 32, L"%.1f", g_MouseSensitivity);
                 SetDlgItemTextW(hwnd, IDC_SENSITIVITY_LABEL, sensText);
-            } else if ((HWND)lParam == GetDlgItem(hwnd, IDC_FOV_SLIDER)) {
-                int pos = (int)SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
-                g_FOV = (float)pos;
-                FOV = g_FOV * 3.14159265f / 180.0f;
-                wchar_t fovText[32];
-                swprintf(fovText, 32, L"%.0f", g_FOV);
-                SetDlgItemTextW(hwnd, IDC_FOV_LABEL, fovText);
             }
             return 0;
         }
@@ -353,8 +303,6 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 
                 g_FullscreenMode = (SendMessage(GetDlgItem(hwnd, IDC_FULLSCREEN_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
                 g_DevConsole = (SendMessage(GetDlgItem(hwnd, IDC_CONSOLE_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
-                g_Inverted = (SendMessage(GetDlgItem(hwnd, IDC_INVERTED_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
-                g_VSync = (SendMessage(GetDlgItem(hwnd, IDC_VSYNC_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
                 
                 SaveSettingsJSON();
                 g_SettingsConfirmed = true;
@@ -415,7 +363,7 @@ bool ShowSettingsMenu(HINSTANCE hInstance) {
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int dialogW = 400;
-    int dialogH = 360;
+    int dialogH = 300;
     int posX = (screenW - dialogW) / 2;
     int posY = (screenH - dialogH) / 2;
     
@@ -739,13 +687,10 @@ bool g_FullscreenMode = true;
 bool g_DevConsole = false;
 float g_MouseSensitivity = 1.0f;
 wchar_t g_GameVersion[32] = L"0.6";
-bool g_Inverted = false;
-bool g_VSync = false;
-float g_FOV = 90.0f;
 const int MAP_WIDTH = 64;
 const int MAP_HEIGHT = 64;
 const float PI = 3.14159265f;
-float FOV = PI / 3.0f;
+const float FOV = PI / 3.0f;
 
 const int TRIG_TABLE_SIZE = 4096;
 float sinTable[TRIG_TABLE_SIZE];
@@ -1964,12 +1909,8 @@ unsigned __stdcall RaycastWorker(void* param) {
         WaitForSingleObject(rp->startEvent, INFINITE);
         if (!rp->running) break;
         
-        float halfFov = FOV * 0.5f;
-        float fovPerPixel = FOV / (float)SCREEN_WIDTH;
-        float baseAngle = player.angle - halfFov;
-        
         for (int x = rp->startX; x < rp->endX; x++) {
-            float rayAngle = baseAngle + x * fovPerPixel;
+            float rayAngle = (player.angle - FOV / 2.0f) + ((float)x / SCREEN_WIDTH) * FOV;
             float rayDirX = FastCos(rayAngle);
             float rayDirY = FastSin(rayAngle);
             
@@ -6268,7 +6209,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             int deltaX = mx - lastMouseX;
             
             float sensitivity = 0.003f * g_MouseSensitivity;
-            if (g_Inverted) deltaX = -deltaX;
             if (spectatorMode) {
                 spectatorAngle += deltaX * sensitivity;
                 // Keep player.angle synced for immediate feedback if needed, 
