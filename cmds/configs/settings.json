@@ -1,9 +1,13 @@
 {
-    "Version": "0.5",
     "Settings": {
-        "Fullscreen": false,
         "Console": true,
-        "Mods": false,
-        "Language": "English"
-    }
+        "Fullscreen": false,
+        "Width": 1024,
+        "Height": 768,
+        "Mouse Sensitivity": 1.0,
+        "Inverted": false,
+        "Vsync": true,
+        "FOV": 90
+    },
+    "Version": "0.6"
 }

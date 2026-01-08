@@ -26,6 +26,415 @@
 #include "dialogue.hpp"
 #include "npcs.hpp"
 #include <emmintrin.h>
+#include <commctrl.h>
+#pragma comment(lib, "comctl32.lib")
+
+extern int SCREEN_WIDTH;
+extern int SCREEN_HEIGHT;
+extern bool g_FullscreenMode;
+extern bool g_DevConsole;
+extern float g_MouseSensitivity;
+extern wchar_t g_GameVersion[32];
+extern bool g_Inverted;
+extern bool g_VSync;
+extern float g_FOV;
+extern float FOV;
+
+struct Resolution { int w, h; const wchar_t* name; };
+Resolution g_Resolutions[] = {
+    {800, 600, L"800 x 600"},
+    {1024, 768, L"1024 x 768"},
+    {1280, 720, L"1280 x 720 (HD)"},
+    {1280, 960, L"1280 x 960"},
+    {1366, 768, L"1366 x 768"},
+    {1600, 900, L"1600 x 900"},
+    {1920, 1080, L"1920 x 1080 (Full HD)"}
+};
+int g_NumResolutions = sizeof(g_Resolutions) / sizeof(g_Resolutions[0]);
+int g_SelectedResolution = 1;
+
+bool LoadSettingsJSON() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (lastSlash) *lastSlash = L'\0';
+    
+    wchar_t settingsPath[MAX_PATH];
+    swprintf(settingsPath, MAX_PATH, L"%ls\\configs\\settings.json", exePath);
+    
+    FILE* f = _wfopen(settingsPath, L"rb");
+    if (!f) return false;
+    
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    
+    char* buffer = new char[size + 1];
+    fread(buffer, 1, size, f);
+    buffer[size] = '\0';
+    fclose(f);
+    
+    auto findValue = [&](const char* key) -> const char* {
+        const char* pos = strstr(buffer, key);
+        if (!pos) return nullptr;
+        pos = strchr(pos, ':');
+        if (!pos) return nullptr;
+        pos++;
+        while (*pos == ' ' || *pos == '\t') pos++;
+        return pos;
+    };
+    
+    auto parseBool = [](const char* val) -> bool {
+        return strstr(val, "true") == val;
+    };
+    
+    auto parseDouble = [](const char* val) -> double {
+        return atof(val);
+    };
+    
+    auto parseInt = [](const char* val) -> int {
+        return atoi(val);
+    };
+    
+    const char* consoleVal = findValue("\"Console\"");
+    if (consoleVal) g_DevConsole = parseBool(consoleVal);
+    
+    const char* fullscreenVal = findValue("\"Fullscreen\"");
+    if (fullscreenVal) g_FullscreenMode = parseBool(fullscreenVal);
+    
+    const char* widthVal = findValue("\"Width\"");
+    if (widthVal) SCREEN_WIDTH = parseInt(widthVal);
+    
+    const char* heightVal = findValue("\"Height\"");
+    if (heightVal) SCREEN_HEIGHT = parseInt(heightVal);
+    
+    const char* sensitivityVal = findValue("\"Mouse Sensitivity\"");
+    if (sensitivityVal) g_MouseSensitivity = (float)parseDouble(sensitivityVal);
+    
+    const char* versionVal = findValue("\"Version\"");
+    if (versionVal) {
+        const char* start = strchr(versionVal, '"');
+        if (start) {
+            start++;
+            const char* end = strchr(start, '"');
+            if (end) {
+                int len = (int)(end - start);
+                if (len > 30) len = 30;
+                for (int i = 0; i < len; i++) g_GameVersion[i] = (wchar_t)start[i];
+                g_GameVersion[len] = L'\0';
+            }
+        }
+    }
+    
+    const char* invertedVal = findValue("\"Inverted\"");
+    if (invertedVal) g_Inverted = parseBool(invertedVal);
+    
+    const char* vsyncVal = findValue("\"Vsync\"");
+    if (vsyncVal) g_VSync = parseBool(vsyncVal);
+    
+    const char* fovVal = findValue("\"FOV\"");
+    if (fovVal) {
+        g_FOV = (float)parseDouble(fovVal);
+        if (g_FOV < 60.0f) g_FOV = 60.0f;
+        if (g_FOV > 120.0f) g_FOV = 120.0f;
+        FOV = g_FOV * 3.14159265f / 180.0f;
+    }
+    
+    for (int i = 0; i < g_NumResolutions; i++) {
+        if (g_Resolutions[i].w == SCREEN_WIDTH && g_Resolutions[i].h == SCREEN_HEIGHT) {
+            g_SelectedResolution = i;
+            break;
+        }
+    }
+    
+    delete[] buffer;
+    return true;
+}
+
+void SaveSettingsJSON() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (lastSlash) *lastSlash = L'\0';
+    
+    wchar_t settingsPath[MAX_PATH];
+    swprintf(settingsPath, MAX_PATH, L"%ls\\configs\\settings.json", exePath);
+    
+    FILE* f = _wfopen(settingsPath, L"w");
+    if (!f) return;
+    
+    char versionA[64];
+    WideCharToMultiByte(CP_UTF8, 0, g_GameVersion, -1, versionA, 64, NULL, NULL);
+    
+    fprintf(f, "{\n");
+    fprintf(f, "    \"Settings\": {\n");
+    fprintf(f, "        \"Console\": %s,\n", g_DevConsole ? "true" : "false");
+    fprintf(f, "        \"Fullscreen\": %s,\n", g_FullscreenMode ? "true" : "false");
+    fprintf(f, "        \"Width\": %d,\n", SCREEN_WIDTH);
+    fprintf(f, "        \"Height\": %d,\n", SCREEN_HEIGHT);
+    fprintf(f, "        \"Mouse Sensitivity\": %.1f,\n", g_MouseSensitivity);
+    fprintf(f, "        \"Inverted\": %s,\n", g_Inverted ? "true" : "false");
+    fprintf(f, "        \"Vsync\": %s,\n", g_VSync ? "true" : "false");
+    fprintf(f, "        \"FOV\": %.0f\n", g_FOV);
+    fprintf(f, "    },\n");
+    fprintf(f, "    \"Version\": \"%s\"\n", versionA);
+    fprintf(f, "}\n");
+    fclose(f);
+}
+
+#define IDC_RESOLUTION_COMBO 1001
+#define IDC_SENSITIVITY_SLIDER 1002
+#define IDC_SENSITIVITY_LABEL 1003
+#define IDC_FULLSCREEN_CHECK 1004
+#define IDC_CONSOLE_CHECK 1005
+#define IDC_PLAY_BUTTON 1006
+#define IDC_CANCEL_BUTTON 1007
+#define IDC_VERSION_LABEL 1008
+#define IDC_INVERTED_CHECK 1009
+#define IDC_VSYNC_CHECK 1010
+#define IDC_FOV_SLIDER 1011
+#define IDC_FOV_LABEL 1012
+
+HWND g_hSettingsDialog = NULL;
+bool g_SettingsConfirmed = false;
+
+LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static HBITMAP hBannerBmp = NULL;
+    static int bannerW = 0, bannerH = 0;
+    
+    switch (msg) {
+        case WM_CREATE: {
+            wchar_t exePath[MAX_PATH];
+            GetModuleFileNameW(NULL, exePath, MAX_PATH);
+            wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+            if (lastSlash) *lastSlash = L'\0';
+            
+            wchar_t fontPath[MAX_PATH];
+            swprintf(fontPath, MAX_PATH, L"%ls\\assets\\fonts\\VCR_OSD_MONO_1.001.ttf", exePath);
+            int fontAdded = AddFontResourceExW(fontPath, FR_PRIVATE, 0);
+            
+            HFONT hFont = NULL;
+            if (fontAdded > 0) {
+                hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"VCR OSD Mono");
+            }
+            if (!hFont) {
+                hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            }
+            
+            wchar_t bannerPath[MAX_PATH];
+            swprintf(bannerPath, MAX_PATH, L"%ls\\assets\\UI\\banner.bmp", exePath);
+            
+            hBannerBmp = (HBITMAP)LoadImageW(NULL, bannerPath, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+            if (hBannerBmp) {
+                BITMAP bm;
+                GetObject(hBannerBmp, sizeof(BITMAP), &bm);
+                bannerW = bm.bmWidth;
+                bannerH = bm.bmHeight;
+            } else {
+                HFONT hTitleFont = CreateFontW(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+                HWND hTitle = CreateWindowExW(0, L"STATIC", L"Lone Shooter", WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 15, 400, 35, hwnd, NULL, NULL, NULL);
+                SendMessage(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+            }
+            
+            CreateWindowExW(0, L"STATIC", L"Resolution:", WS_CHILD | WS_VISIBLE, 30, 70, 100, 25, hwnd, NULL, NULL, NULL);
+            HWND hCombo = CreateWindowExW(0, L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 140, 67, 220, 200, hwnd, (HMENU)IDC_RESOLUTION_COMBO, NULL, NULL);
+            SendMessage(hCombo, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            int screenW = GetSystemMetrics(SM_CXSCREEN);
+            int screenH = GetSystemMetrics(SM_CYSCREEN);
+            for (int i = 0; i < g_NumResolutions; i++) {
+                if (g_Resolutions[i].w <= screenW && g_Resolutions[i].h <= screenH) {
+                    SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)g_Resolutions[i].name);
+                }
+            }
+            
+            int comboIdx = 0;
+            for (int i = 0; i < g_NumResolutions; i++) {
+                if (g_Resolutions[i].w <= screenW && g_Resolutions[i].h <= screenH) {
+                    if (i == g_SelectedResolution) {
+                        SendMessage(hCombo, CB_SETCURSEL, comboIdx, 0);
+                        break;
+                    }
+                    comboIdx++;
+                }
+            }
+            
+            CreateWindowExW(0, L"STATIC", L"Mouse Sensitivity:", WS_CHILD | WS_VISIBLE, 30, 110, 140, 25, hwnd, NULL, NULL, NULL);
+            HWND hSlider = CreateWindowExW(0, TRACKBAR_CLASSW, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS, 170, 107, 150, 30, hwnd, (HMENU)IDC_SENSITIVITY_SLIDER, NULL, NULL);
+            SendMessage(hSlider, TBM_SETRANGE, TRUE, MAKELPARAM(1, 20));
+            SendMessage(hSlider, TBM_SETPOS, TRUE, (int)(g_MouseSensitivity * 10));
+            SendMessage(hSlider, TBM_SETTICFREQ, 2, 0);
+            
+            wchar_t sensText[32];
+            swprintf(sensText, 32, L"%.1f", g_MouseSensitivity);
+            HWND hSensLabel = CreateWindowExW(0, L"STATIC", sensText, WS_CHILD | WS_VISIBLE | SS_CENTER, 325, 112, 40, 20, hwnd, (HMENU)IDC_SENSITIVITY_LABEL, NULL, NULL);
+            SendMessage(hSensLabel, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            HWND hFullscreen = CreateWindowExW(0, L"BUTTON", L"Fullscreen", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 30, 150, 150, 25, hwnd, (HMENU)IDC_FULLSCREEN_CHECK, NULL, NULL);
+            SendMessage(hFullscreen, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hFullscreen, BM_SETCHECK, g_FullscreenMode ? BST_CHECKED : BST_UNCHECKED, 0);
+            
+            HWND hConsole = CreateWindowExW(0, L"BUTTON", L"Developer Console", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 200, 150, 180, 25, hwnd, (HMENU)IDC_CONSOLE_CHECK, NULL, NULL);
+            SendMessage(hConsole, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hConsole, BM_SETCHECK, g_DevConsole ? BST_CHECKED : BST_UNCHECKED, 0);
+            
+            HWND hInverted = CreateWindowExW(0, L"BUTTON", L"Invert Mouse", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 30, 180, 150, 25, hwnd, (HMENU)IDC_INVERTED_CHECK, NULL, NULL);
+            SendMessage(hInverted, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hInverted, BM_SETCHECK, g_Inverted ? BST_CHECKED : BST_UNCHECKED, 0);
+            
+            HWND hVsync = CreateWindowExW(0, L"BUTTON", L"VSync", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 200, 180, 100, 25, hwnd, (HMENU)IDC_VSYNC_CHECK, NULL, NULL);
+            SendMessage(hVsync, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hVsync, BM_SETCHECK, g_VSync ? BST_CHECKED : BST_UNCHECKED, 0);
+            
+            CreateWindowExW(0, L"STATIC", L"FOV:", WS_CHILD | WS_VISIBLE, 30, 215, 40, 25, hwnd, NULL, NULL, NULL);
+            HWND hFovSlider = CreateWindowExW(0, TRACKBAR_CLASSW, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS, 70, 212, 250, 30, hwnd, (HMENU)IDC_FOV_SLIDER, NULL, NULL);
+            SendMessage(hFovSlider, TBM_SETRANGE, TRUE, MAKELPARAM(60, 120));
+            SendMessage(hFovSlider, TBM_SETPOS, TRUE, (int)g_FOV);
+            SendMessage(hFovSlider, TBM_SETTICFREQ, 10, 0);
+            
+            wchar_t fovText[32];
+            swprintf(fovText, 32, L"%.0f", g_FOV);
+            HWND hFovLabel = CreateWindowExW(0, L"STATIC", fovText, WS_CHILD | WS_VISIBLE | SS_CENTER, 325, 217, 40, 20, hwnd, (HMENU)IDC_FOV_LABEL, NULL, NULL);
+            SendMessage(hFovLabel, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            wchar_t verText[64];
+            swprintf(verText, 64, L"Version: %ls", g_GameVersion);
+            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 255, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
+            SendMessage(hVersion, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 285, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
+            SendMessage(hPlay, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 285, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
+            SendMessage(hCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            HWND* children = new HWND[10];
+            children[0] = GetDlgItem(hwnd, IDC_RESOLUTION_COMBO);
+            return 0;
+        }
+        case WM_HSCROLL: {
+            if ((HWND)lParam == GetDlgItem(hwnd, IDC_SENSITIVITY_SLIDER)) {
+                int pos = (int)SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
+                g_MouseSensitivity = pos / 10.0f;
+                wchar_t sensText[32];
+                swprintf(sensText, 32, L"%.1f", g_MouseSensitivity);
+                SetDlgItemTextW(hwnd, IDC_SENSITIVITY_LABEL, sensText);
+            } else if ((HWND)lParam == GetDlgItem(hwnd, IDC_FOV_SLIDER)) {
+                int pos = (int)SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
+                g_FOV = (float)pos;
+                FOV = g_FOV * 3.14159265f / 180.0f;
+                wchar_t fovText[32];
+                swprintf(fovText, 32, L"%.0f", g_FOV);
+                SetDlgItemTextW(hwnd, IDC_FOV_LABEL, fovText);
+            }
+            return 0;
+        }
+        case WM_COMMAND: {
+            int wmId = LOWORD(wParam);
+            if (wmId == IDC_PLAY_BUTTON) {
+                HWND hCombo = GetDlgItem(hwnd, IDC_RESOLUTION_COMBO);
+                int sel = (int)SendMessage(hCombo, CB_GETCURSEL, 0, 0);
+                if (sel != CB_ERR) {
+                    int screenW = GetSystemMetrics(SM_CXSCREEN);
+                    int screenH = GetSystemMetrics(SM_CYSCREEN);
+                    int idx = 0;
+                    for (int i = 0; i < g_NumResolutions; i++) {
+                        if (g_Resolutions[i].w <= screenW && g_Resolutions[i].h <= screenH) {
+                            if (idx == sel) {
+                                SCREEN_WIDTH = g_Resolutions[i].w;
+                                SCREEN_HEIGHT = g_Resolutions[i].h;
+                                g_SelectedResolution = i;
+                                break;
+                            }
+                            idx++;
+                        }
+                    }
+                }
+                
+                g_FullscreenMode = (SendMessage(GetDlgItem(hwnd, IDC_FULLSCREEN_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                g_DevConsole = (SendMessage(GetDlgItem(hwnd, IDC_CONSOLE_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                g_Inverted = (SendMessage(GetDlgItem(hwnd, IDC_INVERTED_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                g_VSync = (SendMessage(GetDlgItem(hwnd, IDC_VSYNC_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                
+                SaveSettingsJSON();
+                g_SettingsConfirmed = true;
+                DestroyWindow(hwnd);
+            } else if (wmId == IDC_CANCEL_BUTTON) {
+                g_SettingsConfirmed = false;
+                DestroyWindow(hwnd);
+            }
+            return 0;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            if (hBannerBmp && bannerW > 0 && bannerH > 0) {
+                HDC hdcMem = CreateCompatibleDC(hdc);
+                HBITMAP hOldBmp = (HBITMAP)SelectObject(hdcMem, hBannerBmp);
+                RECT clientRect;
+                GetClientRect(hwnd, &clientRect);
+                int scaledW = clientRect.right;
+                int scaledH = scaledW * bannerH / bannerW;
+                SetStretchBltMode(hdc, HALFTONE);
+                StretchBlt(hdc, 0, 5, scaledW, scaledH, hdcMem, 0, 0, bannerW, bannerH, SRCCOPY);
+                SelectObject(hdcMem, hOldBmp);
+                DeleteDC(hdcMem);
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_DESTROY:
+            if (hBannerBmp) {
+                DeleteObject(hBannerBmp);
+                hBannerBmp = NULL;
+            }
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+bool ShowSettingsMenu(HINSTANCE hInstance) {
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_BAR_CLASSES;
+    InitCommonControlsEx(&icex);
+    
+    LoadSettingsJSON();
+    
+    WNDCLASSEXW wcSettings = {};
+    wcSettings.cbSize = sizeof(wcSettings);
+    wcSettings.style = CS_HREDRAW | CS_VREDRAW;
+    wcSettings.lpfnWndProc = SettingsDialogProc;
+    wcSettings.hInstance = hInstance;
+    wcSettings.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wcSettings.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wcSettings.lpszClassName = L"LoneShooterSettingsClass";
+    RegisterClassExW(&wcSettings);
+    
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int dialogW = 400;
+    int dialogH = 360;
+    int posX = (screenW - dialogW) / 2;
+    int posY = (screenH - dialogH) / 2;
+    
+    g_hSettingsDialog = CreateWindowExW(WS_EX_DLGMODALFRAME, L"LoneShooterSettingsClass", L"Lone Shooter",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        posX, posY, dialogW, dialogH,
+        NULL, NULL, hInstance, NULL);
+    
+    ShowWindow(g_hSettingsDialog, SW_SHOW);
+    UpdateWindow(g_hSettingsDialog);
+    
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    
+    return g_SettingsConfirmed;
+}
 
 volatile bool musicRunning = true;
 extern bool bossActive;
@@ -324,12 +733,19 @@ void BackgroundMusic(void* arg) {
     }
 }
 
-const int SCREEN_WIDTH = 1024;
-const int SCREEN_HEIGHT = 768;
+int SCREEN_WIDTH = 1024;
+int SCREEN_HEIGHT = 768;
+bool g_FullscreenMode = true;
+bool g_DevConsole = false;
+float g_MouseSensitivity = 1.0f;
+wchar_t g_GameVersion[32] = L"0.6";
+bool g_Inverted = false;
+bool g_VSync = false;
+float g_FOV = 90.0f;
 const int MAP_WIDTH = 64;
 const int MAP_HEIGHT = 64;
 const float PI = 3.14159265f;
-const float FOV = PI / 3.0f;
+float FOV = PI / 3.0f;
 
 const int TRIG_TABLE_SIZE = 4096;
 float sinTable[TRIG_TABLE_SIZE];
@@ -1548,8 +1964,12 @@ unsigned __stdcall RaycastWorker(void* param) {
         WaitForSingleObject(rp->startEvent, INFINITE);
         if (!rp->running) break;
         
+        float halfFov = FOV * 0.5f;
+        float fovPerPixel = FOV / (float)SCREEN_WIDTH;
+        float baseAngle = player.angle - halfFov;
+        
         for (int x = rp->startX; x < rp->endX; x++) {
-            float rayAngle = (player.angle - FOV / 2.0f) + ((float)x / SCREEN_WIDTH) * FOV;
+            float rayAngle = baseAngle + x * fovPerPixel;
             float rayDirX = FastCos(rayAngle);
             float rayDirY = FastSin(rayAngle);
             
@@ -5704,7 +6124,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         case WM_KEYDOWN:
-            if (wParam == VK_OEM_3) { // Tilde key
+            if (wParam == VK_OEM_3 && g_DevConsole) {
                 consoleActive = !consoleActive;
                 return 0;
             }
@@ -5847,7 +6267,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             int mx = LOWORD(lParam);
             int deltaX = mx - lastMouseX;
             
-            float sensitivity = 0.003f;
+            float sensitivity = 0.003f * g_MouseSensitivity;
+            if (g_Inverted) deltaX = -deltaX;
             if (spectatorMode) {
                 spectatorAngle += deltaX * sensitivity;
                 // Keep player.angle synced for immediate feedback if needed, 
@@ -5929,6 +6350,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SetUnhandledExceptionFilter(CrashHandler);
     (void)hPrevInstance; (void)lpCmdLine;
     
+    if (!ShowSettingsMenu(hInstance)) {
+        return 0;
+    }
+    
+    if (g_FullscreenMode) {
+        SCREEN_WIDTH = GetSystemMetrics(SM_CXSCREEN);
+        SCREEN_HEIGHT = GetSystemMetrics(SM_CYSCREEN);
+    }
+    
     LoadHighScore();
     InitTrigTables();
     InitGraphics();
@@ -5958,14 +6388,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     InitAudio();
     
-    RECT windowRect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
-    AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX, FALSE);
-    
-    hMainWnd = CreateWindowExW(0, L"LoneShooterClass", L"LoneShooter - Open World Survival",
-        (WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX),
-        CW_USEDEFAULT, CW_USEDEFAULT, 
-        windowRect.right - windowRect.left, windowRect.bottom - windowRect.top,
-        NULL, NULL, hInstance, NULL);
+    if (g_FullscreenMode) {
+        hMainWnd = CreateWindowExW(WS_EX_TOPMOST, L"LoneShooterClass", L"Lone Shooter",
+            WS_POPUP,
+            0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
+            NULL, NULL, hInstance, NULL);
+    } else {
+        RECT windowRect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
+        AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX, FALSE);
+        
+        hMainWnd = CreateWindowExW(0, L"LoneShooterClass", L"Lone Shooter",
+            (WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX),
+            CW_USEDEFAULT, CW_USEDEFAULT, 
+            windowRect.right - windowRect.left, windowRect.bottom - windowRect.top,
+            NULL, NULL, hInstance, NULL);
+    }
     
     ShowWindow(hMainWnd, nCmdShow);
     UpdateWindow(hMainWnd);
