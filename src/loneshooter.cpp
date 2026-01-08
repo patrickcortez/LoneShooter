@@ -4145,7 +4145,8 @@ void UpdateBullets(float deltaTime) {
                             marshall.summonTimer = 10.0f; // Initial delay
                             marshall.attackTimer = 0;
                             
-                            enemies.push_back(marshall);
+                            
+                            pendingEnemies.push_back(marshall);
                             marshallSpawned = true;
                             
                             // Spawn 10 minions to follow him
@@ -4159,7 +4160,7 @@ void UpdateBullets(float deltaTime) {
                                 if (worldMap[(int)s.x][(int)s.y] == 0) {
                                     s.active = true; s.health = 1; s.speed = 3.0f; s.spriteIndex = rand()%4; 
                                     s.isShooter = false; s.isMarshall = false; 
-                                    enemies.push_back(s);
+                                    pendingEnemies.push_back(s);
                                 }
                             }
                         }
