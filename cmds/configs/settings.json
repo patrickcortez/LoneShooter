@@ -1,7 +1,7 @@
 {
     "Settings": {
         "Console": true,
-        "Fullscreen": false,
+        "Fullscreen": true,
         "Width": 1024,
         "Height": 768,
         "Mouse Sensitivity": 1.0,

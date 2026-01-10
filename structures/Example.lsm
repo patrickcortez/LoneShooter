@@ -1,0 +1,49 @@
+@Map: { //note that the map maker and the game will be in the same dir as the map maker and game it'll be used in
+    @Size: 64, 64 //width, height
+    @PlayerStart: 10.00, 32.00 //x, y
+    @AssetFolder: "<foldername>" //assets folder will be dynamically find
+}
+
+@Tiles: {
+    @Texture[0]: "grass.bmp"
+    @Texture[1]: "stone.bmp"
+    @Data: { //each number is the index of the texture, to be rendered in game
+        0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+        0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+    }
+}
+
+@Objects: {
+    @Object[1]: {
+        @Sprite: "<childfoldername>/tree.bmp" //if bmp is in  a sub folder with in asset folder
+        @Position: 15.50, 20.00
+        @Size: 1.00, 2.00
+        @Collision: false
+        @Collision-Size:{ //set collision of an object
+            @Width: 1.00
+            @Height: 2.00
+            @Length: 1.00
+        }
+    }
+
+    @Cubep[1]:{
+        @Name: "Cube"
+        @Position: 15.50, 20.00
+        @Size: 1.00, 1.00, 1.00 //width, height, length
+        @Collision: true
+        @Collision-Size:{ //set collision of an object
+            @Width: 1.00
+            @Height: 2.00
+            @Length: 1.00
+        }
+        @Face-Sprites:{ //dont include face if empty, rendered as white
+            @Front: "<childfoldername>/front.bmp"
+            @Back: "<childfoldername>/back.bmp"
+            @Top: "<childfoldername>/top.bmp"
+            @Bottom: "<childfoldername>/bottom.bmp"
+            @Left: "<childfoldername>/left.bmp"
+            @Right: "<childfoldername>/right.bmp"
+        }
+    }
+}
+
