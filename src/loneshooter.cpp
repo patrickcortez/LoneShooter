@@ -1,6 +1,6 @@
 /*
  * LoneShooter - Open World 2.5D Raycaster
- * Compile:g++ -o cmds/LoneShooter64.exe src/loneshooter.cpp -lgdi32 -lwinmm -mwindows -lole32 -loleaut32 -luuid -msse2 -O2 -static 2>&1
+ * Compile:g++ -o cmds/LoneShooter64.exe src/loneshooter.cpp -lgdi32 -lwinmm -mwindows -lole32 -loleaut32 -luuid -lcomctl32 -msse2 -O2 -static 2>&1
  * Run: ./LoneShooter.exe
  * Controls: WASD=Move, Mouse=Look, ESC=Quit
  * By Patrick Andrew Cortez
@@ -889,6 +889,33 @@ struct RockSprite {
     int variant;
 };
 
+struct BigRock {
+    float x, y;
+    int variant;
+    float radius;
+};
+
+enum HealingTowerState { TOWER_DORMANT, TOWER_CHARGING, TOWER_READY, TOWER_ACTIVE, TOWER_COOLDOWN };
+
+struct HealingTower {
+    float x, y;
+    HealingTowerState state;
+    float timer;         // For animation (pulsing) and active duration
+    float cooldownTimer; // For cooldown phase
+    float animTimer;     // For sprite swapping
+    int pulseFrame;      // 0 or 1 for charging sprites
+    
+    struct Particle {
+        float angle;
+        float dist;
+        float height;
+        float speed;
+    };
+    std::vector<Particle> particles;
+};
+
+
+
 struct BushSprite {
     float x, y;
 };
@@ -1050,7 +1077,9 @@ std::vector<Enemy> pendingEnemies;
 std::vector<TreeSprite> trees;
 std::vector<GrassSprite> grasses;
 std::vector<RockSprite> rocks;
+std::vector<BigRock> bigRocks;
 std::vector<BushSprite> bushes;
+
 std::vector<Cloud> clouds;
 std::vector<Bullet> bullets;
 std::vector<Fireball> fireballs;
@@ -1178,6 +1207,16 @@ int playerSpriteW = 0, playerSpriteH = 0;
 DWORD* compassPixels = nullptr;
 int compassW = 0, compassH = 0;
 
+HealingTower healingTower;
+DWORD* htDormantPixels = nullptr;
+int htDormantW = 0, htDormantH = 0;
+DWORD* htChargingPixels[2] = {nullptr, nullptr};
+int htChargingW[2] = {0, 0}, htChargingH[2] = {0, 0};
+DWORD* htReadyPixels = nullptr;
+int htReadyW = 0, htReadyH = 0;
+DWORD* htParticlePixels = nullptr;
+int htParticleW = 0, htParticleH = 0;
+
 // Prototypes
 void LoadModelCurrentDir(const wchar_t* filename, float x, float z);
 void Render3DScene();
@@ -1281,8 +1320,15 @@ DWORD* grassPlantPixels = NULL;
 int grassPlantW = 0, grassPlantH = 0;
 DWORD* rockPixels[3] = {NULL};
 int rockW[3] = {0}, rockH[3] = {0};
+DWORD* bigRockPixels[3] = {NULL};
+int bigRockW[3] = {0}, bigRockH[3] = {0};
+
 DWORD* bushPixels = NULL;
 int bushW = 0, bushH = 0;
+DWORD* borderWallPixels = NULL;
+int borderWallW = 0, borderWallH = 0;
+DWORD* gateWallPixels = NULL;
+int gateWallW = 0, gateWallH = 0;
 int treeW = 0, treeH = 0;
 int cloudW = 0, cloudH = 0;
 int gunW = 0, gunH = 0;
@@ -1343,8 +1389,18 @@ bool CheckClawCollision(float x, float y) {
             if (dx*dx + dy*dy < 2.25f) return true;
         }
     }
+    
+    // Check Big Rocks
+    for(const auto& br : bigRocks) {
+        float dx = x - br.x;
+        float dy = y - br.y;
+        if (dx*dx + dy*dy < 2.25f) return true; 
+    }
+
+    
     return false;
 }
+
 
 DWORD* LoadBMPPixels(const wchar_t* filename, int* outW, int* outH) {
     HBITMAP hBmp = (HBITMAP)LoadImageW(NULL, filename, IMAGE_BITMAP, 0, 0, 
@@ -1561,10 +1617,31 @@ void TryLoadAssets() {
         rockPixels[i] = LoadBMPPixels(path, &rockW[i], &rockH[i]);
         if (!rockPixels[i]) { wchar_t name[32]; swprintf(name, 32, L"rock%d.bmp", i+1); missingAssets.push_back(name); if (errorPixels) { rockPixels[i] = errorPixels; rockW[i] = errorW; rockH[i] = errorH; } }
     }
+
+    for (int i = 0; i < 3; i++) {
+        swprintf(path, MAX_PATH, L"%ls\\assets\\environment\\big_rocks\\BigRock%d.bmp", exePath, i + 1);
+        bigRockPixels[i] = LoadBMPPixels(path, &bigRockW[i], &bigRockH[i]);
+        if (!bigRockPixels[i]) { 
+            // Fallback to small rocks if big ones missing, or error pixel
+            if (rockPixels[i]) { bigRockPixels[i] = rockPixels[i]; bigRockW[i] = rockW[i]; bigRockH[i] = rockH[i]; }
+            else if (errorPixels) { bigRockPixels[i] = errorPixels; bigRockW[i] = errorW; bigRockH[i] = errorH; }
+            
+            wchar_t name[32]; swprintf(name, 32, L"BigRock%d.bmp", i+1); missingAssets.push_back(name); 
+        }
+    }
+
     
     swprintf(path, MAX_PATH, L"%ls\\assets\\environment\\plants\\bush.bmp", exePath);
     bushPixels = LoadBMPPixels(path, &bushW, &bushH);
     if (!bushPixels) { missingAssets.push_back(L"bush.bmp"); if (errorPixels) { bushPixels = errorPixels; bushW = errorW; bushH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\walls\\border1.bmp", exePath);
+    borderWallPixels = LoadBMPPixels(path, &borderWallW, &borderWallH);
+    if (!borderWallPixels) { missingAssets.push_back(L"border1.bmp"); }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\walls\\gate1.bmp", exePath);
+    gateWallPixels = LoadBMPPixels(path, &gateWallW, &gateWallH);
+    if (!gateWallPixels) { missingAssets.push_back(L"gate1.bmp"); }
 
     swprintf(path, MAX_PATH, L"%ls\\assets\\the_leader\\leader_idle.bmp", exePath);
     leaderIdlePixels = LoadBMPPixels(path, &leaderIdleW, &leaderIdleH);
@@ -1586,7 +1663,43 @@ void TryLoadAssets() {
     compassPixels = LoadBMPPixels(path, &compassW, &compassH);
     if (!compassPixels) { missingAssets.push_back(L"compass.bmp"); if (errorPixels) { compassPixels = errorPixels; compassW = errorW; compassH = errorH; } }
 
-    swprintf(loadStatus, 256, L"G:%ls S:%ls A:%ls H:%ls D:%ls F:%ls M:%ls C:%ls", gunPixels?L"OK":L"X", spirePixels?L"OK":L"X", spireAwakePixels?L"OK":L"X", spireHurtPixels?L"OK":L"X", spireDeathPixels?L"OK":L"X", fireballPixels?L"OK":L"X", medkitPixels?L"OK":L"X", clawDormantPixels?L"OK":L"X");
+    // Healing Tower Assets
+    swprintf(path, MAX_PATH, L"%ls\\assets\\healing_tower\\healing_tower_dormant.bmp", exePath);
+    htDormantPixels = LoadBMPPixels(path, &htDormantW, &htDormantH);
+    if (!htDormantPixels) { 
+        missingAssets.push_back(L"healing_tower_dormant.bmp"); 
+        // Fallback to error or rock
+        if (bigRockPixels[0]) { htDormantPixels = bigRockPixels[0]; htDormantW = bigRockW[0]; htDormantH = bigRockH[0]; }
+        else if (errorPixels) { htDormantPixels = errorPixels; htDormantW = errorW; htDormantH = errorH; } 
+    }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\healing_tower\\healing_tower_charging1.bmp", exePath);
+    htChargingPixels[0] = LoadBMPPixels(path, &htChargingW[0], &htChargingH[0]);
+    if (!htChargingPixels[0]) { 
+        htChargingPixels[0] = htDormantPixels; htChargingW[0] = htDormantW; htChargingH[0] = htDormantH;
+    }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\healing_tower\\healing_tower_charging2.bmp", exePath);
+    htChargingPixels[1] = LoadBMPPixels(path, &htChargingW[1], &htChargingH[1]);
+    if (!htChargingPixels[1]) { 
+         htChargingPixels[1] = htChargingPixels[0]; htChargingW[1] = htChargingW[0]; htChargingH[1] = htChargingH[0];
+    }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\healing_tower\\healing_tower_ready.bmp", exePath);
+    htReadyPixels = LoadBMPPixels(path, &htReadyW, &htReadyH);
+    if (!htReadyPixels) { 
+        htReadyPixels = htDormantPixels; htReadyW = htDormantW; htReadyH = htDormantH;
+    }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\healing_tower\\healing_particle.bmp", exePath);
+    htParticlePixels = LoadBMPPixels(path, &htParticleW, &htParticleH);
+    if (!htParticlePixels) { 
+        missingAssets.push_back(L"healing_particle.bmp"); 
+        if (errorPixels) { htParticlePixels = errorPixels; htParticleW = errorW; htParticleH = errorH; } 
+    }
+
+    swprintf(loadStatus, 256, L"G:%ls S:%ls A:%ls H:%ls D:%ls F:%ls M:%ls C:%ls BR:%ls", gunPixels?L"OK":L"X", spirePixels?L"OK":L"X", spireAwakePixels?L"OK":L"X", spireHurtPixels?L"OK":L"X", spireDeathPixels?L"OK":L"X", fireballPixels?L"OK":L"X", medkitPixels?L"OK":L"X", clawDormantPixels?L"OK":L"X", bigRockPixels[0]?L"OK":L"X");
+
     
     if (!errorPixels && !gunPixels && !spirePixels && !treePixels && !grassPixels) {
         assetsFolderMissing = true;
@@ -1609,6 +1722,15 @@ void GenerateWorld() {
             }
         }
     }
+    
+    int gateCenter = MAP_WIDTH / 2;
+    for (int d = 0; d <= 3; d++) {
+        worldMap[gateCenter][d] = 4;
+        worldMap[gateCenter][MAP_HEIGHT - 1 - d] = 4;
+        worldMap[d][gateCenter] = 4;
+        worldMap[MAP_WIDTH - 1 - d][gateCenter] = 4;
+    }
+
     
     for (int i = 0; i < 600; i++) {
         int side = rand() % 4;
@@ -1690,6 +1812,31 @@ void GenerateWorld() {
         }
     }
     
+    // Generate Big Rocks
+    int bigRockVariant = 0;
+    for (int i = 0; i < 65; i++) {
+        float bx = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
+        float by = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
+        float distToCenter = sqrtf((bx - 32)*(bx - 32) + (by - 32)*(by - 32));
+        
+        // Ensure not too close to center (Spire) and not inside walls
+        if (distToCenter > 10.0f && worldMap[(int)bx][(int)by] == 0) {
+            // Check distance to other big rocks to avoid stacking
+            bool overlaps = false;
+            for(const auto& existing : bigRocks) {
+                float dx = bx - existing.x;
+                float dy = by - existing.y;
+                if (dx*dx + dy*dy < 0.49f) { overlaps = true; break; }
+            }
+            if (!overlaps) {
+                BigRock br = {bx, by, bigRockVariant, 1.2f};
+                bigRocks.push_back(br);
+                bigRockVariant = (bigRockVariant + 1) % 3;
+            }
+        }
+    }
+
+    
     for (int i = 0; i < 80; i++) {
         float bx = 6.0f + (rand() % ((MAP_WIDTH - 12) * 10)) / 10.0f;
         float by = 6.0f + (rand() % ((MAP_HEIGHT - 12) * 10)) / 10.0f;
@@ -1699,9 +1846,109 @@ void GenerateWorld() {
             bushes.push_back(bush);
         }
     }
+
+
+    // Initialize Healing Tower
+    healingTower.x = 20.0f; // Fixed spawn for now
+    healingTower.y = 20.0f;
+    healingTower.state = TOWER_DORMANT;
+    healingTower.timer = 0;
+    healingTower.cooldownTimer = 0;
+    healingTower.animTimer = 0;
+    healingTower.pulseFrame = 0;
+    healingTower.particles.clear();
+}
+
+void UpdateHealingTower(float deltaTime) {
+    float distToPlayer = sqrtf((healingTower.x - player.x)*(healingTower.x - player.x) + (healingTower.y - player.y)*(healingTower.y - player.y));
+    
+    switch (healingTower.state) {
+        case TOWER_DORMANT:
+            if (score >= 100) {
+                healingTower.state = TOWER_CHARGING;
+                healingTower.timer = 0;
+            }
+            break;
+        case TOWER_CHARGING:
+            healingTower.animTimer += deltaTime;
+            if (healingTower.animTimer >= 0.5f) {
+                healingTower.pulseFrame = !healingTower.pulseFrame;
+                healingTower.animTimer = 0;
+            }
+            if (score >= 150) {
+                healingTower.state = TOWER_READY;
+                healingTower.particles.clear();
+                for(int i=0; i<8; i++) {
+                    HealingTower::Particle p;
+                    // Circle distribution
+                    p.angle = (i / 8.0f) * 2 * PI;
+                    p.dist = 1.5f;
+                    p.height = 0.5f; 
+                    p.speed = 1.0f;
+                    healingTower.particles.push_back(p);
+                }
+            }
+            break;
+        case TOWER_READY:
+            for(auto& p : healingTower.particles) {
+                p.angle += p.speed * deltaTime;
+                if (p.angle > 2*PI) p.angle -= 2*PI;
+            }
+            
+            if (distToPlayer < 3.0f) {
+                 ShowError(L"Press E to activate healing"); 
+                 if (keys['E']) {
+                     healingTower.state = TOWER_ACTIVE;
+                     healingTower.timer = 10.0f;
+                 }
+            }
+            break;
+        case TOWER_ACTIVE:
+            healingTower.timer -= deltaTime;
+            
+            for(auto& p : healingTower.particles) {
+                p.angle += p.speed * 1.0f * deltaTime; // Reduced from 2.0f
+                 if (p.angle > 2*PI) p.angle -= 2*PI;
+                if (p.dist < 8.0f) p.dist += 5.0f * deltaTime;
+            }
+            
+            if (distToPlayer < 8.0f) {
+                player.health += (int)(50 * deltaTime); 
+                if (player.health > 100) player.health = 100;
+                healFlashTimer = 0.5f; 
+            }
+            
+            if (healingTower.timer <= 0) {
+                healingTower.state = TOWER_COOLDOWN;
+                healingTower.cooldownTimer = 10.0f; // Increased from 5.0f
+                healingTower.particles.clear();
+            }
+            break;
+        case TOWER_COOLDOWN:
+            healingTower.animTimer += deltaTime;
+            if (healingTower.animTimer >= 0.5f) {
+                healingTower.pulseFrame = !healingTower.pulseFrame;
+                healingTower.animTimer = 0;
+            }
+            healingTower.cooldownTimer -= deltaTime;
+            if (healingTower.cooldownTimer <= 0) {
+                healingTower.state = TOWER_READY;
+                healingTower.particles.clear();
+                for(int i=0; i<8; i++) {
+                    HealingTower::Particle p;
+                    p.angle = (i / 8.0f) * 2 * PI;
+                    p.dist = 1.5f;
+                    p.height = 0.5f;
+                    p.speed = 1.0f;
+                    healingTower.particles.push_back(p);
+                }
+            }
+            break;
+    }
 }
 
 void SpawnMedkit() {
+
     for (int i = 0; i < 3; i++) {
         do {
             medkits[i].x = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
@@ -1970,13 +2217,22 @@ unsigned __stdcall RaycastWorker(void* param) {
             
             float correctedDist = distanceToWall * cosf(rayAngle - player.angle);
             
+            float wallX;
+            if (side == 0) {
+                wallX = player.y + distanceToWall * rayDirY;
+            } else {
+                wallX = player.x + distanceToWall * rayDirX;
+            }
+            wallX -= floorf(wallX);
+            
             int ceiling, floorLine;
-            if (wallType == 3) {
+            if (wallType == 3 && distanceToWall >= 90.0f) {
                 ceiling = 0;
                 floorLine = SCREEN_HEIGHT / 2 + (int)player.pitch;
             } else {
-                ceiling = (int)((SCREEN_HEIGHT / 2.0f) - (SCREEN_HEIGHT / correctedDist) + player.pitch);
-                floorLine = SCREEN_HEIGHT - ceiling;
+                int wallHeight = (int)(SCREEN_HEIGHT / correctedDist);
+                ceiling = SCREEN_HEIGHT / 2 - wallHeight / 2 + (int)player.pitch;
+                floorLine = SCREEN_HEIGHT / 2 + wallHeight / 2 + (int)player.pitch;
             }
             
             for (int y = 0; y < SCREEN_HEIGHT; y++) {
@@ -2027,19 +2283,68 @@ unsigned __stdcall RaycastWorker(void* param) {
                     zBuffer[y * SCREEN_WIDTH + x] = rowDist;
                 }
                 
-                if (wallType != 3 && y >= ceiling && y <= floorLine) {
+                if (y >= ceiling && y <= floorLine) {
                     float shade = 1.0f - (correctedDist / 50.0f);
                     if (shade < 0.1f) shade = 0.1f;
                     if (side == 1) shade *= 0.8f;
-                    int r, g, b;
-                    if (wallType == 2) {
-                        r = (int)(60 * shade); g = (int)(100 * shade); b = (int)(40 * shade);
-                    } else {
-                        r = (int)(140 * shade); g = (int)(100 * shade); b = (int)(60 * shade);
-                    }
-                    backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(r, g, b);
                     
-                    zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
+                    if (wallType == 3 && distanceToWall < 90.0f && borderWallPixels && borderWallW > 0 && borderWallH > 0) {
+                        int texX = (int)(wallX * borderWallW);
+                        if (texX < 0) texX = 0;
+                        if (texX >= borderWallW) texX = borderWallW - 1;
+                        
+                        int wallHeight = floorLine - ceiling;
+                        if (wallHeight <= 0) wallHeight = 1;
+                        float texYf = (float)(y - ceiling) / (float)wallHeight;
+                        int texY = (int)(texYf * borderWallH);
+                        if (texY < 0) texY = 0;
+                        if (texY >= borderWallH) texY = borderWallH - 1;
+                        
+                        DWORD col = borderWallPixels[texY * borderWallW + texX];
+                        int bb = (col >> 0) & 0xFF;
+                        int gg = (col >> 8) & 0xFF;
+                        int rr = (col >> 16) & 0xFF;
+                        int aa = (col >> 24) & 0xFF;
+                        
+                        if (aa > 0) {
+                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
+                                (int)(rr * shade), (int)(gg * shade), (int)(bb * shade));
+                            zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
+                        }
+                    } else if (wallType == 4 && gateWallPixels && gateWallW > 0 && gateWallH > 0) {
+                        int texX = (int)(wallX * gateWallW);
+                        if (texX < 0) texX = 0;
+                        if (texX >= gateWallW) texX = gateWallW - 1;
+                        
+                        int wallHeight = floorLine - ceiling;
+                        if (wallHeight <= 0) wallHeight = 1;
+                        float texYf = (float)(y - ceiling) / (float)wallHeight;
+                        int texY = (int)(texYf * gateWallH);
+                        if (texY < 0) texY = 0;
+                        if (texY >= gateWallH) texY = gateWallH - 1;
+                        
+                        DWORD col = gateWallPixels[texY * gateWallW + texX];
+                        int bb = (col >> 0) & 0xFF;
+                        int gg = (col >> 8) & 0xFF;
+                        int rr = (col >> 16) & 0xFF;
+                        int aa = (col >> 24) & 0xFF;
+                        
+                        if (aa > 0) {
+                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
+                                (int)(rr * shade), (int)(gg * shade), (int)(bb * shade));
+                            zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
+                        }
+                    } else if (wallType != 3 && wallType != 4) {
+                        int r, g, b;
+                        if (wallType == 2) {
+                            r = (int)(60 * shade); g = (int)(100 * shade); b = (int)(40 * shade);
+                        } else {
+                            r = (int)(140 * shade); g = (int)(100 * shade); b = (int)(60 * shade);
+                        }
+                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(r, g, b);
+                        
+                        zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
+                    }
                 }
             }
         }
@@ -2236,7 +2541,7 @@ void RenderSprite(DWORD* pixels, int pxW, int pxH, float sx, float sy, float dis
     float spriteHeight = (SCREEN_HEIGHT / dist) * scale;
     float spriteWidth = spriteHeight;
     
-    int floorLineAtDist = SCREEN_HEIGHT / 2 + (int)((SCREEN_HEIGHT / 2.0f) / dist) + (int)player.pitch;
+    int floorLineAtDist = SCREEN_HEIGHT / 2 + (int)((SCREEN_HEIGHT / 2.0f) / dist);
     int verticalOffset = (int)((heightOffset * SCREEN_HEIGHT) / dist);
     int drawEndY = floorLineAtDist - verticalOffset;
     int drawStartY = (int)(drawEndY - spriteHeight);
@@ -2354,6 +2659,47 @@ void RenderSprites() {
             allSprites.push_back({rock.x, rock.y, dist, 12, 0.3f, rock.variant, false, 0.0f, false});
         }
     }
+    
+    for (auto& br : bigRocks) {
+        float dx = br.x - player.x;
+        float dy = br.y - player.y;
+        float dist = sqrtf(dx*dx + dy*dy);
+        if (dist < 40.0f) {
+            allSprites.push_back({br.x, br.y, dist, 14, 1.5f, br.variant, false, 0.0f, false});
+
+        }
+    }
+    
+    // Healing Tower
+    {
+        float dx = healingTower.x - player.x;
+        float dy = healingTower.y - player.y;
+        float dist = sqrtf(dx*dx + dy*dy);
+        if (dist < 50.0f) {
+             // Type 20
+             int variant = 0; // 0=Dormant, 1=Charging0, 2=Charging1, 3=Ready
+             if (healingTower.state == TOWER_DORMANT) variant = 0;
+             else if (healingTower.state == TOWER_CHARGING || healingTower.state == TOWER_COOLDOWN) variant = 1 + healingTower.pulseFrame;
+             else variant = 3;
+             
+             // 2.0f scale for tower
+             allSprites.push_back({healingTower.x, healingTower.y, dist, 20, 2.0f, variant, false, 0.0f, false});
+        }
+        
+        // Particles
+        for(const auto& p : healingTower.particles) {
+             float px = healingTower.x + cosf(p.angle) * p.dist;
+             float py = healingTower.y + sinf(p.angle) * p.dist;
+             
+             float pdx = px - player.x;
+             float pdy = py - player.y;
+             float pdist = sqrtf(pdx*pdx + pdy*pdy);
+             if (pdist < 50.0f) {
+                 allSprites.push_back({px, py, pdist, 21, 0.5f, 0, false, p.height, false});
+             }
+        }
+    }
+
     
     for (auto& bush : bushes) {
         float dx = bush.x - player.x;
@@ -2526,6 +2872,12 @@ void RenderSprites() {
             }
         } else if (sp.type == 2) {
             RenderSprite(sPix, sW, sH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 14 && sp.height == 0.0f) { // Big Rock (distinguish from rocket by height)
+             RenderSprite(bigRockPixels[sp.variant], bigRockW[sp.variant], bigRockH[sp.variant], sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 13) {
+            if (bushPixels) {
+                RenderSprite(bushPixels, bushW, bushH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+            }
         } else if (sp.type == 3) {
             RenderSprite(fireballPixels, fireballW, fireballH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         } else if (sp.type == 4) {
@@ -2620,6 +2972,16 @@ void RenderSprites() {
             if (playerSpritePixels) {
                  RenderSprite(playerSpritePixels, playerSpriteW, playerSpriteH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
             }
+        } else if (sp.type == 20) { // Healing Tower
+             DWORD* pix = htDormantPixels; 
+             int w = htDormantW, h = htDormantH;
+             if (sp.variant == 1) { pix = htChargingPixels[0]; w = htChargingW[0]; h = htChargingH[0]; }
+             else if (sp.variant == 2) { pix = htChargingPixels[1]; w = htChargingW[1]; h = htChargingH[1]; }
+             else if (sp.variant == 3) { pix = htReadyPixels; w = htReadyW; h = htReadyH; }
+             
+             if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 21) { // Particles
+             if (htParticlePixels) RenderSprite(htParticlePixels, htParticleW, htParticleH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         }
     }
 }
@@ -2950,20 +3312,52 @@ void UpdateEnemies(float deltaTime) {
                              float my = (pdy / pdist) * chaseSpeed * deltaTime;
                              float cdx = (enemy.x + mx) - 32.0f;
                              float cdy = (enemy.y + my) - 32.0f;
-                             if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x + mx, enemy.y)) enemy.x += mx;
+                             if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x + mx, enemy.y)) {
+                                 bool collision = false;
+                                 for(const auto& br : bigRocks) {
+                                     float dx = (enemy.x + mx) - br.x;
+                                     float dy = enemy.y - br.y;
+                                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                                 }
+                                 if(!collision) enemy.x += mx;
+                             }
                              cdx = enemy.x - 32.0f;
                              cdy = (enemy.y + my) - 32.0f;
-                             if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, enemy.y + my)) enemy.y += my;
+                             if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, enemy.y + my)) {
+                                 bool collision = false;
+                                 for(const auto& br : bigRocks) {
+                                     float dx = enemy.x - br.x;
+                                     float dy = (enemy.y + my) - br.y;
+                                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                                 }
+                                 if(!collision) enemy.y += my;
+                             }
                          }
                      } else {
                          float mx = (dx / dist) * chaseSpeed * deltaTime;
                          float my = (dy / dist) * chaseSpeed * deltaTime;
                          float cdx = (enemy.x + mx) - 32.0f;
                          float cdy = (enemy.y + my) - 32.0f;
-                         if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x + mx, enemy.y)) enemy.x += mx;
+                          if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x + mx, enemy.y)) {
+                                 bool collision = false;
+                                 for(const auto& br : bigRocks) {
+                                     float dx = (enemy.x + mx) - br.x;
+                                     float dy = enemy.y - br.y;
+                                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                                 }
+                                 if(!collision) enemy.x += mx;
+                          }
                          cdx = enemy.x - 32.0f;
                          cdy = (enemy.y + my) - 32.0f;
-                         if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, enemy.y + my)) enemy.y += my;
+                          if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, enemy.y + my)) {
+                                 bool collision = false;
+                                 for(const auto& br : bigRocks) {
+                                     float dx = enemy.x - br.x;
+                                     float dy = (enemy.y + my) - br.y;
+                                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                                 }
+                                 if(!collision) enemy.y += my;
+                          }
                      }
                  }
                  
@@ -3031,8 +3425,26 @@ void UpdateEnemies(float deltaTime) {
                     float moveY = (tdy / tdist) * enemy.speed * 1.5f * deltaTime;
                     float newX = enemy.x + moveX;
                     float newY = enemy.y + moveY;
-                    if (worldMap[(int)newX][(int)enemy.y] == 0) enemy.x = newX;
-                    if (worldMap[(int)enemy.x][(int)newY] == 0) enemy.y = newY;
+         // Check Wall Collision
+        if (worldMap[(int)newX][(int)enemy.y] == 0) {
+            bool collision = false;
+            for(const auto& br : bigRocks) {
+                float dx = newX - br.x;
+                float dy = enemy.y - br.y;
+                if(dx*dx + dy*dy < 2.25f) { collision = true; break; } 
+            }
+            if(!collision) enemy.x = newX;
+        }
+        if (worldMap[(int)enemy.x][(int)newY] == 0) {
+             bool collision = false;
+            for(const auto& br : bigRocks) {
+                float dx = enemy.x - br.x;
+                float dy = newY - br.y;
+                if(dx*dx + dy*dy < 2.25f) { collision = true; break; } 
+            }
+            if(!collision) enemy.y = newY;
+        }
+
                 }
                 
                 if (dist <= 18.0f && dist > 1.0f) {
@@ -3105,10 +3517,29 @@ void UpdateEnemies(float deltaTime) {
                     float newY = enemy.y + moveY;
                     float cdx = newX - 32.0f;
                     float cdy = newY - 32.0f;
-                    if (worldMap[(int)newX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(newX, enemy.y)) enemy.x = newX;
+                    if (worldMap[(int)newX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(newX, enemy.y)) {
+                         bool collision = false;
+                         for(const auto& br : bigRocks) {
+                             float dx = newX - br.x;
+                             float dy = enemy.y - br.y;
+                             if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                         }
+                         if(!collision) enemy.x = newX;
+                    }
                     cdx = enemy.x - 32.0f;
                     cdy = newY - 32.0f;
-                    if (worldMap[(int)enemy.x][(int)newY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, newY)) enemy.y = newY;
+                    if (worldMap[(int)enemy.x][(int)newY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, newY)) {
+                         bool collision = false;
+                         for(const auto& br : bigRocks) {
+                             float dx = enemy.x - br.x;
+                             float dy = newY - br.y;
+                             if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                         }
+                         if(!collision) enemy.y = newY;
+                    }
+
                 }
             }
         } else {
@@ -3344,11 +3775,27 @@ void UpdateEnemies(float deltaTime) {
             float centerDx = newX - 32.0f;
             float centerDy = newY - 32.0f;
             bool blockedBySpire = (centerDx*centerDx + centerDy*centerDy < 9.0f);
-            if (worldMap[(int)newX][(int)enemy.y] == 0 && !blockedBySpire && !CheckClawCollision(newX, enemy.y)) enemy.x = newX;
+            if (worldMap[(int)newX][(int)enemy.y] == 0 && !blockedBySpire && !CheckClawCollision(newX, enemy.y)) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = newX - br.x;
+                     float dy = enemy.y - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                 }
+                 if(!collision) enemy.x = newX;
+            }
             centerDx = enemy.x - 32.0f;
             centerDy = newY - 32.0f;
             blockedBySpire = (centerDx*centerDx + centerDy*centerDy < 9.0f);
-            if (worldMap[(int)enemy.x][(int)newY] == 0 && !blockedBySpire && !CheckClawCollision(enemy.x, newY)) enemy.y = newY;
+            if (worldMap[(int)enemy.x][(int)newY] == 0 && !blockedBySpire && !CheckClawCollision(enemy.x, newY)) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = enemy.x - br.x;
+                     float dy = newY - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                 }
+                 if(!collision) enemy.y = newY;
+            }
             
             if (enemy.attackTimer > 0) enemy.attackTimer -= deltaTime;
             
@@ -3416,6 +3863,14 @@ void UpdateEnemies(float deltaTime) {
             eb.active = false;
             continue;
         }
+        
+        for(const auto& br : bigRocks) {
+             float dx = eb.x - br.x;
+             float dy = eb.y - br.y;
+             if(dx*dx + dy*dy < 0.49f) { 
+eb.active = false; break; }
+        }
+        if (!eb.active) continue;
         
         float pdx = player.x - eb.x;
         float pdy = player.y - eb.y;
@@ -3928,6 +4383,22 @@ void UpdateEnemies(float deltaTime) {
         fb.x += fb.dirX * fb.speed * deltaTime;
         fb.y += fb.dirY * fb.speed * deltaTime;
         
+        float distToSpire = sqrtf((fb.x - 32.0f)*(fb.x - 32.0f) + (fb.y - 32.0f)*(fb.y - 32.0f));
+                 if (distToSpire < 2.0f && bossActive) {
+            // Hit boss
+            fb.active = false;
+        }
+        
+        for(const auto& br : bigRocks) {
+             float dx = fb.x - br.x;
+             float dy = fb.y - br.y;
+             if(dx*dx + dy*dy < 0.49f) { 
+fb.active = false; break; }
+        }
+        
+        if(fb.x < 0 || fb.x > MAP_WIDTH || fb.y < 0 || fb.y > MAP_HEIGHT) fb.active = false;
+        if (!fb.active) continue; // Check if it was deactivated by rock or spire
+        
         float dx = player.x - fb.x;
         float dy = player.y - fb.y;
         if (sqrtf(dx*dx + dy*dy) < 0.5f) {
@@ -4183,6 +4654,22 @@ void UpdateBullets(float deltaTime) {
                 r.y += (dy / dist) * moveSpeed * deltaTime;
             }
             
+            bool hitRock = false;
+            for(const auto& br : bigRocks) {
+                 float dx = r.x - br.x;
+                 float dy = r.y - br.y;
+                 if(dx*dx + dy*dy < 0.49f) { hitRock = true; break; }
+            }
+            if (hitRock) {
+                r.active = false;
+                Explosion ex;
+                ex.x = r.x; ex.y = r.y; ex.timer = 1.0f; ex.active = true;
+                explosions.push_back(ex);
+                PlayBazookaExplosionSound();
+                continue;
+            }
+
+            
             // Spawn Trail
             if ((int)(GetTickCount() / 50) % 2 == 0) {
                  RocketTrail t;
@@ -4258,6 +4745,15 @@ void UpdateBullets(float deltaTime) {
                      if (sqrtf(edx*edx + edy*edy) < 1.0f) { hit = true; break; }
                  }
             }
+            
+            if (!hit) {
+                 for(const auto& br : bigRocks) {
+                     float dx = r.x - br.x;
+                     float dy = r.y - br.y;
+                     if(dx*dx + dy*dy < 0.49f) { hit = true; break; }
+                 }
+            }
+
             
             if (!hit && bossActive) {
                  float bdx = r.x - 32.0f;
@@ -4422,6 +4918,13 @@ void UpdateBullets(float deltaTime) {
             b.active = false;
             continue;
         }
+        
+        for(const auto& br : bigRocks) {
+             float dx = b.x - br.x;
+             float dy = b.y - br.y;
+             if(dx*dx + dy*dy < 0.49f) { b.active = false; break; }
+        }
+        if (!b.active) continue;
         
         for (auto& enemy : enemies) {
             if (!enemy.active) continue;
@@ -5160,33 +5663,114 @@ void UpdatePlayer(float deltaTime) {
             float newX = player.x + cosf(player.angle) * moveSpeed;
             float newY = player.y + sinf(player.angle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) player.x = newX;
+            if (worldMap[(int)newX][(int)player.y] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = newX - br.x;
+                     float dy = player.y - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = newX - healingTower.x;
+                     float htdy = player.y - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
+                 }
+            }
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) player.y = newY;
+             if (worldMap[(int)player.x][(int)newY] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = player.x - br.x;
+                     float dy = newY - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = player.x - healingTower.x;
+                     float htdy = newY - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
+                 }
+            }
             isMoving = true;
         }
+
         if (keys['S'] || keys[VK_DOWN]) {
             float newX = player.x - cosf(player.angle) * moveSpeed;
             float newY = player.y - sinf(player.angle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) player.x = newX;
+            if (worldMap[(int)newX][(int)player.y] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = newX - br.x;
+                     float dy = player.y - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = newX - healingTower.x;
+                     float htdy = player.y - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
+                 }
+            }
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) player.y = newY;
+            if (worldMap[(int)player.x][(int)newY] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = player.x - br.x;
+                     float dy = newY - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = player.x - healingTower.x;
+                     float htdy = newY - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
+                 }
+            }
             isMoving = true;
         }
+
         if (keys['A']) {
             float strafeAngle = player.angle - PI / 2;
             float newX = player.x + cosf(strafeAngle) * moveSpeed;
             float newY = player.y + sinf(strafeAngle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) player.x = newX;
+            if (worldMap[(int)newX][(int)player.y] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = newX - br.x;
+                     float dy = player.y - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = newX - healingTower.x;
+                     float htdy = player.y - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
+                 }
+            }
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) player.y = newY;
+            if (worldMap[(int)player.x][(int)newY] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = player.x - br.x;
+                     float dy = newY - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = player.x - healingTower.x;
+                     float htdy = newY - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
+                 }
+            }
             isMoving = true;
         }
+
     }
     
     if (spectatorMode) {
@@ -5225,10 +5809,36 @@ void UpdatePlayer(float deltaTime) {
             float newX = player.x + cosf(strafeAngle) * moveSpeed;
             float newY = player.y + sinf(strafeAngle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) player.x = newX;
+            if (worldMap[(int)newX][(int)player.y] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = newX - br.x;
+                     float dy = player.y - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = newX - healingTower.x;
+                     float htdy = player.y - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
+                 }
+            }
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) player.y = newY;
+            if (worldMap[(int)player.x][(int)newY] == 0) {
+                 bool collision = false;
+                 for(const auto& br : bigRocks) {
+                     float dx = player.x - br.x;
+                     float dy = newY - br.y;
+                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
+
+                 }
+                 if(!collision) {
+                     float htdx = player.x - healingTower.x;
+                     float htdy = newY - healingTower.y;
+                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
+                 }
+            }
             isMoving = true;
         }
     }
@@ -5886,8 +6496,9 @@ void RenderGame(HDC hdc) {
         SetBkMode(memDC, TRANSPARENT);
         SetTextColor(memDC, RGB(0, 0, 0));
         wchar_t statText[512];
-        swprintf(statText, 512, L"FPS: %d  |  Enemies: %d (Melee: %d/%d, Shooters: %d/%d)  |  Paragons: %d/8  |  Pos: (%.1f, %.1f)  |  Cap Timer: %.1f  |  Dir: %.1f° %ls", 
-                 currentFPS, totalEnemies, meleeCount, maxMeleeSpawn, shooterCount, maxShooterSpawn, paragonCount, player.x, player.y, spawnCapTimer, degAngle, dirName);
+        swprintf(statText, 512, L"FPS: %d  |  Enemies: %d (Melee: %d/%d, Shooters: %d/%d)  |  Paragons: %d/8  |  Pos: (%.1f, %.1f)  |  Cap Timer: %.1f  |  Dir: %.1f° %ls\nHT State: %d | Timer: %.1f | CD: %.1f", 
+                 currentFPS, totalEnemies, meleeCount, maxMeleeSpawn, shooterCount, maxShooterSpawn, paragonCount, player.x, player.y, spawnCapTimer, degAngle, dirName,
+                 healingTower.state, healingTower.timer, healingTower.cooldownTimer);
         TextOutW(memDC, 10, SCREEN_HEIGHT - 50, statText, (int)wcslen(statText));
     }
     
@@ -6415,6 +7026,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
         
         UpdatePlayer(deltaTime);
+        UpdateHealingTower(deltaTime);
+        UpdateHealingTower(deltaTime);
         
         if (!spectatorMode) {
             UpdateEnemies(deltaTime);
