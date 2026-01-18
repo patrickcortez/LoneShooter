@@ -2250,6 +2250,11 @@ unsigned __stdcall RaycastWorker(void* param) {
                         b = (int)(100 + 155 * (1 - skyGradient));
                     }
                     
+                    float horizonFog = skyGradient * skyGradient;
+                    r = (int)(r * (1.0f - horizonFog) + 128 * horizonFog);
+                    g = (int)(g * (1.0f - horizonFog) + 128 * horizonFog);
+                    b = (int)(b * (1.0f - horizonFog) + 128 * horizonFog);
+                    
                     backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(r, g, b);
                     zBuffer[y * SCREEN_WIDTH + x] = 1000.0f;
                 }
@@ -2271,13 +2276,32 @@ unsigned __stdcall RaycastWorker(void* param) {
                         int rr = (col >> 16) & 0xFF;
                         float shade = 1.0f - (rowDist / 20.0f);
                         if (shade < 0.15f) shade = 0.15f;
-                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
-                            (int)(rr * shade), (int)(gg * shade), (int)(bb * shade));
+                        
+                        float fogStart = 17.0f;
+                        float fogEnd = 30.0f;
+                        float fogFactor = (rowDist - fogStart) / (fogEnd - fogStart);
+                        if (fogFactor < 0.0f) fogFactor = 0.0f;
+                        if (fogFactor > 1.0f) fogFactor = 1.0f;
+                        
+                        int finalR = (int)(rr * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                        int finalG = (int)(gg * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                        int finalB = (int)(bb * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                        
+                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(finalR, finalG, finalB);
                     } else {
                         float shade = 1.0f - (rowDist / 40.0f);
                         if (shade < 0.1f) shade = 0.1f;
                         int c = (int)(80 * shade);
-                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(c/2, c, c/2);
+                        
+                        float fogFactor = (rowDist - 17.0f) / 13.0f;
+                        if (fogFactor < 0.0f) fogFactor = 0.0f;
+                        if (fogFactor > 1.0f) fogFactor = 1.0f;
+                        
+                        int finalR = (int)((c/2) * (1.0f - fogFactor) + 128 * fogFactor);
+                        int finalG = (int)(c * (1.0f - fogFactor) + 128 * fogFactor);
+                        int finalB = (int)((c/2) * (1.0f - fogFactor) + 128 * fogFactor);
+                        
+                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(finalR, finalG, finalB);
                     }
                     
                     zBuffer[y * SCREEN_WIDTH + x] = rowDist;
@@ -2287,6 +2311,10 @@ unsigned __stdcall RaycastWorker(void* param) {
                     float shade = 1.0f - (correctedDist / 50.0f);
                     if (shade < 0.1f) shade = 0.1f;
                     if (side == 1) shade *= 0.8f;
+                    
+                    float fogFactor = (correctedDist - 17.0f) / 13.0f;
+                    if (fogFactor < 0.0f) fogFactor = 0.0f;
+                    if (fogFactor > 1.0f) fogFactor = 1.0f;
                     
                     if (wallType == 3 && distanceToWall < 90.0f && borderWallPixels && borderWallW > 0 && borderWallH > 0) {
                         int texX = (int)(wallX * borderWallW);
@@ -2307,8 +2335,10 @@ unsigned __stdcall RaycastWorker(void* param) {
                         int aa = (col >> 24) & 0xFF;
                         
                         if (aa > 0) {
-                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
-                                (int)(rr * shade), (int)(gg * shade), (int)(bb * shade));
+                            int rFinal = (int)(rr * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                            int gFinal = (int)(gg * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                            int bFinal = (int)(bb * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
                             zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
                         }
                     } else if (wallType == 4 && gateWallPixels && gateWallW > 0 && gateWallH > 0) {
@@ -2330,8 +2360,10 @@ unsigned __stdcall RaycastWorker(void* param) {
                         int aa = (col >> 24) & 0xFF;
                         
                         if (aa > 0) {
-                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
-                                (int)(rr * shade), (int)(gg * shade), (int)(bb * shade));
+                            int rFinal = (int)(rr * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                            int gFinal = (int)(gg * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                            int bFinal = (int)(bb * shade * (1.0f - fogFactor) + 128 * fogFactor);
+                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
                             zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
                         }
                     } else if (wallType != 3 && wallType != 4) {
@@ -2341,7 +2373,12 @@ unsigned __stdcall RaycastWorker(void* param) {
                         } else {
                             r = (int)(140 * shade); g = (int)(100 * shade); b = (int)(60 * shade);
                         }
-                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(r, g, b);
+                        
+                        int rFinal = (int)(r * (1.0f - fogFactor) + 128 * fogFactor);
+                        int gFinal = (int)(g * (1.0f - fogFactor) + 128 * fogFactor);
+                        int bFinal = (int)(b * (1.0f - fogFactor) + 128 * fogFactor);
+                        
+                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
                         
                         zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
                     }
@@ -2528,7 +2565,8 @@ void Render3DScene() {
 }
 
 void RenderSprite(DWORD* pixels, int pxW, int pxH, float sx, float sy, float dist, float scale, float heightOffset = 0.0f) {
-    if (dist < 0.5f || dist > 50.0f) return;
+    if (dist < 0.5f || dist > 30.0f) return;
+    if (!pixels || pxW <= 0 || pxH <= 0) return;
     
     float dx = sx - player.x;
     float dy = sy - player.y;
@@ -2548,34 +2586,58 @@ void RenderSprite(DWORD* pixels, int pxW, int pxH, float sx, float sy, float dis
     int drawStartX = (int)(spriteScreenX - spriteWidth / 2);
     int drawEndX = (int)(spriteScreenX + spriteWidth / 2);
     
-    for (int x = drawStartX; x < drawEndX; x++) {
-        if (x < 0 || x >= SCREEN_WIDTH) continue;
+    if (drawEndX <= 0 || drawStartX >= SCREEN_WIDTH) return;
+    if (drawEndY <= 0 || drawStartY >= SCREEN_HEIGHT) return;
+    
+    int clampedStartX = drawStartX < 0 ? 0 : drawStartX;
+    int clampedEndX = drawEndX > SCREEN_WIDTH ? SCREEN_WIDTH : drawEndX;
+    int clampedStartY = drawStartY < 0 ? 0 : drawStartY;
+    int clampedEndY = drawEndY > SCREEN_HEIGHT ? SCREEN_HEIGHT : drawEndY;
+    
+    float shade = 1.0f - (dist / 40.0f);
+    if (shade < 0.15f) shade = 0.15f;
+    int shadeFixed = (int)(shade * 256);
+    
+    float fogFactor = (dist - 17.0f) / 13.0f;
+    if (fogFactor < 0.0f) fogFactor = 0.0f;
+    if (fogFactor > 1.0f) fogFactor = 1.0f;
+    int fogFixed = (int)(fogFactor * 256);
+    int invFogFixed = 256 - fogFixed;
+    
+    float invSpriteWidth = 1.0f / spriteWidth;
+    float invSpriteHeight = 1.0f / spriteHeight;
+    
+    for (int x = clampedStartX; x < clampedEndX; x++) {
+        int tx = (int)(((x - drawStartX) * invSpriteWidth) * pxW);
+        if (tx < 0 || tx >= pxW) continue;
         
-        float texX = (float)(x - drawStartX) / spriteWidth;
+        int texRowBase = tx;
         
-        for (int y = drawStartY; y < drawEndY; y++) {
-            if (y < 0 || y >= SCREEN_HEIGHT) continue;
+        for (int y = clampedStartY; y < clampedEndY; y++) {
+            int bufIdx = y * SCREEN_WIDTH + x;
+            if (dist > zBuffer[bufIdx]) continue;
             
-            if (dist > zBuffer[y * SCREEN_WIDTH + x]) continue;
+            int ty = (int)(((y - drawStartY) * invSpriteHeight) * pxH);
+            if (ty < 0 || ty >= pxH) continue;
             
-            float texY = (float)(y - drawStartY) / spriteHeight;
+            DWORD col = pixels[ty * pxW + tx];
+            int a = (col >> 24) & 0xFF;
+            if (a == 0) continue;
             
-            if (pixels && pxW > 0 && pxH > 0) {
-                int tx = (int)(texX * pxW);
-                int ty = (int)(texY * pxH);
-                if (tx >= 0 && tx < pxW && ty >= 0 && ty < pxH) {
-                    DWORD col = pixels[ty * pxW + tx];
-                    int b = (col >> 0) & 0xFF;
-                    int g = (col >> 8) & 0xFF;
-                    int r = (col >> 16) & 0xFF;
-                    int a = (col >> 24) & 0xFF;
-                    if (a == 0) continue;
-                    float shade = 1.0f - (dist / 40.0f);
-                    if (shade < 0.15f) shade = 0.15f;
-                    backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
-                        (int)(r * shade), (int)(g * shade), (int)(b * shade));
-                }
-            }
+            int b = (col >> 0) & 0xFF;
+            int g = (col >> 8) & 0xFF;
+            int r = (col >> 16) & 0xFF;
+            
+            // Apply shade then fog
+            int rShaded = (r * shadeFixed) >> 8;
+            int gShaded = (g * shadeFixed) >> 8;
+            int bShaded = (b * shadeFixed) >> 8;
+            
+            int rFinal = (rShaded * invFogFixed + 128 * fogFixed) >> 8;
+            int gFinal = (gShaded * invFogFixed + 128 * fogFixed) >> 8;
+            int bFinal = (bShaded * invFogFixed + 128 * fogFixed) >> 8;
+            
+            backBufferPixels[bufIdx] = MakeColor(rFinal, gFinal, bFinal);
         }
     }
 }
@@ -2637,8 +2699,8 @@ void RenderSprites() {
         float dx = tree.x - player.x;
         float dy = tree.y - player.y;
         float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 50.0f) {
-            allSprites.push_back({tree.x, tree.y, dist, 0, 1.0f, 0, false, 0.0f, false});
+        if (dist < 30.0f) {
+            allSprites.push_back({tree.x, tree.y, dist, 0, 6.0f, 0, false, 0.0f, false});
         }
     }
     
@@ -2646,7 +2708,7 @@ void RenderSprites() {
         float dx = grass.x - player.x;
         float dy = grass.y - player.y;
         float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 30.0f) {
+        if (dist < 25.0f) {
             allSprites.push_back({grass.x, grass.y, dist, 11, 0.3f, 0, false, 0.0f, false});
         }
     }
@@ -2664,7 +2726,7 @@ void RenderSprites() {
         float dx = br.x - player.x;
         float dy = br.y - player.y;
         float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 40.0f) {
+        if (dist < 35.0f) {
             allSprites.push_back({br.x, br.y, dist, 14, 1.5f, br.variant, false, 0.0f, false});
 
         }
@@ -2675,7 +2737,7 @@ void RenderSprites() {
         float dx = healingTower.x - player.x;
         float dy = healingTower.y - player.y;
         float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 50.0f) {
+        if (dist < 35.0f) {
              // Type 20
              int variant = 0; // 0=Dormant, 1=Charging0, 2=Charging1, 3=Ready
              if (healingTower.state == TOWER_DORMANT) variant = 0;
@@ -2694,7 +2756,7 @@ void RenderSprites() {
              float pdx = px - player.x;
              float pdy = py - player.y;
              float pdist = sqrtf(pdx*pdx + pdy*pdy);
-             if (pdist < 50.0f) {
+             if (pdist < 35.0f) {
                  allSprites.push_back({px, py, pdist, 21, 0.5f, 0, false, p.height, false});
              }
         }
@@ -2705,7 +2767,7 @@ void RenderSprites() {
         float dx = bush.x - player.x;
         float dy = bush.y - player.y;
         float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 40.0f) {
+        if (dist < 30.0f) {
             allSprites.push_back({bush.x, bush.y, dist, 13, 0.6f, 0, false, 0.0f, false});
         }
     }
