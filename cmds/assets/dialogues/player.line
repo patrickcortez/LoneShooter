@@ -1,0 +1,5 @@
+@Name: Lance
+@Dialogue:{
+    @Line[1]: "Damn it, Its locked."
+    @Line[2]: "Guess I'll have to find another way out"
+}

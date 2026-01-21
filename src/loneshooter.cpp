@@ -1,6 +1,6 @@
 /*
  * LoneShooter - Open World 2.5D Raycaster
- * Compile:g++ -o cmds/LoneShooter64.exe src/loneshooter.cpp -lgdi32 -lwinmm -mwindows -lole32 -loleaut32 -luuid -lcomctl32 -msse2 -O2 -static 2>&1
+ * Compile:g++ -o cmds/LoneShooter64.exe src/loneshooter.cpp -lgdi32 -lwinmm -mwindows -lole32 -loleaut32 -luuid -lcomctl32 -lopengl32 -msse2 -O2 -static 2>&1
  * Run: ./LoneShooter.exe
  * Controls: WASD=Move, Mouse=Look, ESC=Quit
  * By Patrick Andrew Cortez
@@ -29,12 +29,146 @@
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")
 
+#include <GL/gl.h>
+#pragma comment(lib, "opengl32.lib")
+
+#define GL_FRAGMENT_SHADER 0x8B30
+#define GL_VERTEX_SHADER 0x8B31
+#define GL_COMPILE_STATUS 0x8B81
+#define GL_LINK_STATUS 0x8B82
+#define GL_ARRAY_BUFFER 0x8892
+#define GL_STATIC_DRAW 0x88E4
+#define GL_CLAMP_TO_EDGE 0x812F
+#define GL_BGRA 0x80E1
+#define GL_TEXTURE0 0x84C0
+
+#define GL_COMPUTE_SHADER 0x91B9
+#define GL_SHADER_STORAGE_BUFFER 0x90D2
+#define GL_SHADER_IMAGE_ACCESS_BARRIER_BIT 0x00000020
+#define GL_ALL_BARRIER_BITS 0xFFFFFFFF
+#define GL_READ_ONLY 0x88B8
+#define GL_WRITE_ONLY 0x88B9
+#define GL_READ_WRITE 0x88BA
+#define GL_RGBA32F 0x8814
+#define GL_R32F 0x822E
+#define GL_RGBA8 0x8058
+#define GL_DYNAMIC_DRAW 0x88E8
+#define GL_TEXTURE_FETCH_BARRIER_BIT 0x00000008
+#define GL_RED 0x1903
+
+typedef char GLchar;
+typedef ptrdiff_t GLsizeiptr;
+typedef GLuint (*PFNGLCREATESHADERPROC)(GLenum type);
+typedef void (*PFNGLSHADERSOURCEPROC)(GLuint shader, GLsizei count, const GLchar** string, const GLint* length);
+typedef void (*PFNGLCOMPILESHADERPROC)(GLuint shader);
+typedef void (*PFNGLGETSHADERIVPROC)(GLuint shader, GLenum pname, GLint* params);
+typedef void (*PFNGLGETSHADERINFOLOGPROC)(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
+typedef GLuint (*PFNGLCREATEPROGRAMPROC)(void);
+typedef void (*PFNGLATTACHSHADERPROC)(GLuint program, GLuint shader);
+typedef void (*PFNGLLINKPROGRAMPROC)(GLuint program);
+typedef void (*PFNGLGETPROGRAMIVPROC)(GLuint program, GLenum pname, GLint* params);
+typedef void (*PFNGLUSEPROGRAMPROC)(GLuint program);
+typedef GLint (*PFNGLGETUNIFORMLOCATIONPROC)(GLuint program, const GLchar* name);
+typedef void (*PFNGLUNIFORM1FPROC)(GLint location, GLfloat v0);
+typedef void (*PFNGLUNIFORM2FPROC)(GLint location, GLfloat v0, GLfloat v1);
+typedef void (*PFNGLUNIFORM1IPROC)(GLint location, GLint v0);
+typedef void (*PFNGLACTIVETEXTUREPROC)(GLenum texture);
+typedef void (*PFNGLGENBUFFERSPROC)(GLsizei n, GLuint* buffers);
+typedef void (*PFNGLBINDBUFFERPROC)(GLenum target, GLuint buffer);
+typedef void (*PFNGLBUFFERDATAPROC)(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
+typedef void (*PFNGLVERTEXATTRIBPOINTERPROC)(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void* pointer);
+typedef void (*PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint index);
+typedef void (*PFNGLGENVERTEXARRAYSPROC)(GLsizei n, GLuint* arrays);
+typedef void (*PFNGLBINDVERTEXARRAYPROC)(GLuint array);
+typedef void (*PFNGLDELETESHADERPROC)(GLuint shader);
+
+typedef void (*PFNGLDISPATCHCOMPUTEPROC)(GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z);
+typedef void (*PFNGLMEMORYBARRIERPROC)(GLbitfield barriers);
+typedef void (*PFNGLBINDIMAGETEXTUREPROC)(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format);
+typedef void (*PFNGLBINDBUFFERBASEPROC)(GLenum target, GLuint index, GLuint buffer);
+typedef void (*PFNGLTEXSTORAGE2DPROC)(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
+typedef void (*PFNGLGETTEXIMAGEPROC)(GLenum target, GLint level, GLenum format, GLenum type, void* pixels);
+
+PFNGLCREATESHADERPROC glCreateShader;
+PFNGLSHADERSOURCEPROC glShaderSource;
+PFNGLCOMPILESHADERPROC glCompileShader;
+PFNGLGETSHADERIVPROC glGetShaderiv;
+PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog;
+PFNGLCREATEPROGRAMPROC glCreateProgram;
+PFNGLATTACHSHADERPROC glAttachShader;
+PFNGLLINKPROGRAMPROC glLinkProgram;
+PFNGLGETPROGRAMIVPROC glGetProgramiv;
+PFNGLUSEPROGRAMPROC glUseProgram;
+PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation;
+PFNGLUNIFORM1FPROC glUniform1f;
+PFNGLUNIFORM2FPROC glUniform2f;
+PFNGLUNIFORM1IPROC glUniform1i;
+PFNGLACTIVETEXTUREPROC glActiveTexture;
+PFNGLGENBUFFERSPROC glGenBuffers;
+PFNGLBINDBUFFERPROC glBindBuffer;
+PFNGLBUFFERDATAPROC glBufferData;
+PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer;
+PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
+PFNGLGENVERTEXARRAYSPROC glGenVertexArrays;
+PFNGLBINDVERTEXARRAYPROC glBindVertexArray;
+PFNGLDELETESHADERPROC glDeleteShader;
+
+PFNGLDISPATCHCOMPUTEPROC glDispatchCompute;
+PFNGLMEMORYBARRIERPROC glMemoryBarrier;
+PFNGLBINDIMAGETEXTUREPROC glBindImageTexture;
+PFNGLBINDBUFFERBASEPROC glBindBufferBase;
+PFNGLTEXSTORAGE2DPROC glTexStorage2D;
+
+HDC g_glDC = NULL;
+HGLRC g_glRC = NULL;
+GLuint g_vcrProgram = 0;
+GLuint g_vcrTexture = 0;
+GLuint g_vcrVAO = 0;
+GLuint g_vcrVBO = 0;
+bool g_glInitialized = false;
+float g_glTime = 0.0f;
+GLint g_locTex = -1;
+GLint g_locTime = -1;
+GLint g_locResolution = -1;
+
+GLuint g_raycastProgram = 0;
+GLuint g_renderTex = 0;
+GLuint g_zBufferTex = 0;
+GLuint g_mapSSBO = 0;
+GLuint g_grassTex = 0;
+GLuint g_borderWallTex = 0;
+GLuint g_gateWallTex = 0;
+bool g_gpuRaycastAvailable = false;
+GLint g_rcLocPlayerPos = -1;
+GLint g_rcLocPlayerAngle = -1;
+GLint g_rcLocPlayerPitch = -1;
+GLint g_rcLocBossActive = -1;
+GLint g_rcLocScreenSize = -1;
+
+GLuint g_spriteBatchProgram = 0;
+GLuint g_spriteAtlasTex = 0;
+GLuint g_spriteVAO = 0;
+GLuint g_spriteVBO = 0;
+bool g_gpuSpritesAvailable = false;
+
 extern int SCREEN_WIDTH;
 extern int SCREEN_HEIGHT;
 extern bool g_FullscreenMode;
 extern bool g_DevConsole;
 extern float g_MouseSensitivity;
+bool g_EnableVHS = true;
+bool g_PerformanceMode = false;
+bool g_EnableMouseLook = true; // Restored missing global
+bool pendingGameReset = false; // Global flag for deferred reset
 extern wchar_t g_GameVersion[32];
+
+// Forward declarations
+void InitPostProcess();
+void ApplyPostProcess();
+void FinalizePostProcess(HDC memDC);
+inline DWORD MakeColor(int r, int g, int b) {
+    return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+}
 
 struct Resolution { int w, h; const wchar_t* name; };
 Resolution g_Resolutions[] = {
@@ -106,6 +240,12 @@ bool LoadSettingsJSON() {
     
     const char* sensitivityVal = findValue("\"Mouse Sensitivity\"");
     if (sensitivityVal) g_MouseSensitivity = (float)parseDouble(sensitivityVal);
+
+    const char* vhsVal = findValue("\"EnableVHS\"");
+    if (vhsVal) g_EnableVHS = parseBool(vhsVal);
+
+    const char* perfVal = findValue("\"Performance\"");
+    if (perfVal) g_PerformanceMode = parseBool(perfVal);
     
     const char* versionVal = findValue("\"Version\"");
     if (versionVal) {
@@ -155,7 +295,8 @@ void SaveSettingsJSON() {
     fprintf(f, "        \"Width\": %d,\n", SCREEN_WIDTH);
     fprintf(f, "        \"Height\": %d,\n", SCREEN_HEIGHT);
     fprintf(f, "        \"Mouse Sensitivity\": %.1f,\n", g_MouseSensitivity);
-    fprintf(f, "        \"Performance\": false\n");
+    fprintf(f, "        \"EnableVHS\": %s,\n", g_EnableVHS ? "true" : "false");
+    fprintf(f, "        \"Performance\": %s\n", g_PerformanceMode ? "true" : "false");
     fprintf(f, "    },\n");
     fprintf(f, "    \"Version\": \"%s\"\n", versionA);
     fprintf(f, "}\n");
@@ -170,6 +311,8 @@ void SaveSettingsJSON() {
 #define IDC_PLAY_BUTTON 1006
 #define IDC_CANCEL_BUTTON 1007
 #define IDC_VERSION_LABEL 1008
+#define IDC_VHS_CHECK 1009
+#define IDC_PERFORMANCE_CHECK 1010
 
 HWND g_hSettingsDialog = NULL;
 bool g_SettingsConfirmed = false;
@@ -253,16 +396,24 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             HWND hConsole = CreateWindowExW(0, L"BUTTON", L"Developer Console", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 200, 150, 180, 25, hwnd, (HMENU)IDC_CONSOLE_CHECK, NULL, NULL);
             SendMessage(hConsole, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hConsole, BM_SETCHECK, g_DevConsole ? BST_CHECKED : BST_UNCHECKED, 0);
+
+            HWND hVHS = CreateWindowExW(0, L"BUTTON", L"VHS Filter", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 30, 185, 150, 25, hwnd, (HMENU)IDC_VHS_CHECK, NULL, NULL);
+            SendMessage(hVHS, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hVHS, BM_SETCHECK, g_EnableVHS ? BST_CHECKED : BST_UNCHECKED, 0);
+
+            HWND hPerf = CreateWindowExW(0, L"BUTTON", L"Performance Mode", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 200, 185, 180, 25, hwnd, (HMENU)IDC_PERFORMANCE_CHECK, NULL, NULL);
+            SendMessage(hPerf, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hPerf, BM_SETCHECK, g_PerformanceMode ? BST_CHECKED : BST_UNCHECKED, 0);
             
             wchar_t verText[64];
             swprintf(verText, 64, L"Version: %ls", g_GameVersion);
-            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 195, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
+            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 225, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
             SendMessage(hVersion, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 230, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
+            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 260, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
             SendMessage(hPlay, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 230, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
+            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 260, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
             SendMessage(hCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
             
             HWND* children = new HWND[10];
@@ -303,6 +454,8 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 
                 g_FullscreenMode = (SendMessage(GetDlgItem(hwnd, IDC_FULLSCREEN_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
                 g_DevConsole = (SendMessage(GetDlgItem(hwnd, IDC_CONSOLE_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                g_EnableVHS = (SendMessage(GetDlgItem(hwnd, IDC_VHS_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                g_PerformanceMode = (SendMessage(GetDlgItem(hwnd, IDC_PERFORMANCE_CHECK), BM_GETCHECK, 0, 0) == BST_CHECKED);
                 
                 SaveSettingsJSON();
                 g_SettingsConfirmed = true;
@@ -363,7 +516,7 @@ bool ShowSettingsMenu(HINSTANCE hInstance) {
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int dialogW = 400;
-    int dialogH = 300;
+    int dialogH = 360;
     int posX = (screenW - dialogW) / 2;
     int posY = (screenH - dialogH) / 2;
     
@@ -737,6 +890,7 @@ HFONT hFontBig;
 HFONT hFontSmall;
 HFONT hFontMedium;
 HFONT hFontTitle;
+HFONT hFontPixel;
 
 void InitGraphics() {
     hBrushMapBG = CreateSolidBrush(RGB(20, 20, 20));
@@ -772,6 +926,9 @@ void InitGraphics() {
     hFontSmall = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
     hFontMedium = CreateFontW(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
     hFontTitle = CreateFontW(48, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+    hFontPixel = CreateFontW(64, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"VCR OSD Mono");
+    
+    InitPostProcess();
 }
 
 void CleanupGraphics() {
@@ -806,6 +963,7 @@ void CleanupGraphics() {
     DeleteObject(hFontSmall);
     DeleteObject(hFontMedium);
     DeleteObject(hFontTitle);
+    DeleteObject(hFontPixel);
 }
 
 inline float FastSin(float angle) {
@@ -820,6 +978,15 @@ inline float FastCos(float angle) {
     while (angle >= 2.0f * PI) angle -= 2.0f * PI;
     int index = (int)(angle / (2.0f * PI) * TRIG_TABLE_SIZE) % TRIG_TABLE_SIZE;
     return cosTable[index];
+}
+
+inline bool IsInFrustum(float spriteX, float spriteY, float playerX, float playerY, float playerAngle, float marginAngle) {
+    float dx = spriteX - playerX;
+    float dy = spriteY - playerY;
+    float angle = atan2f(dy, dx) - playerAngle;
+    while (angle > PI) angle -= 2 * PI;
+    while (angle < -PI) angle += 2 * PI;
+    return fabsf(angle) < marginAngle;
 }
 
 int worldMap[MAP_WIDTH][MAP_HEIGHT];
@@ -1186,9 +1353,13 @@ std::vector<Explosion> explosions;
 
 bool postBossPhase = false;
 DialogueSystem::DialogueController dialogueController;
+DialogueSystem::DialogueController playerDialogueController;
 NPCSystem::NPC* currentTalkingNPC = nullptr;
 float whiteFadeTimer = 0;
 bool whiteFadeToVictory = false;
+
+bool playerNearGate = false;
+bool gateDialogueActive = false;
 
 DWORD* leaderIdlePixels = nullptr;
 int leaderIdleW = 0, leaderIdleH = 0;
@@ -1203,6 +1374,13 @@ float savedPlayerX = 0, savedPlayerY = 0, savedPlayerAngle = 0;
 
 DWORD* playerSpritePixels = nullptr;
 int playerSpriteW = 0, playerSpriteH = 0;
+
+struct Grave {
+    float x, y;
+};
+std::vector<Grave> graves;
+DWORD* gravePixels = nullptr;
+int graveW = 0, graveH = 0;
 
 DWORD* compassPixels = nullptr;
 int compassW = 0, compassH = 0;
@@ -1288,10 +1466,54 @@ void SaveHighScore() {
     }
 }
 
+void GetProgPath(wchar_t* path) {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* lastBackSlash = wcsrchr(exePath, L'\\');
+    wchar_t* lastForwardSlash = wcsrchr(exePath, L'/');
+    wchar_t* lastSlash = lastBackSlash;
+    if (lastForwardSlash && (!lastSlash || lastForwardSlash > lastSlash)) lastSlash = lastForwardSlash;
+    if (lastSlash) *lastSlash = L'\0';
+    swprintf(path, MAX_PATH, L"%ls\\prog.dat", exePath);
+}
+
+void LoadGraves() {
+    wchar_t path[MAX_PATH];
+    GetProgPath(path);
+    FILE* f = _wfopen(path, L"rb");
+    if (f) {
+        int count = 0;
+        fread(&count, sizeof(int), 1, f);
+        for(int i=0; i<count; i++) {
+            Grave g;
+            fread(&g, sizeof(Grave), 1, f);
+            graves.push_back(g);
+        }
+        fclose(f);
+    }
+}
+
+void SaveGraves() {
+    wchar_t path[MAX_PATH];
+    GetProgPath(path);
+    FILE* f = _wfopen(path, L"wb");
+    if (f) {
+        int count = (int)graves.size();
+        fwrite(&count, sizeof(int), 1, f);
+        for(const auto& g : graves) {
+            fwrite(&g, sizeof(Grave), 1, f);
+        }
+        fclose(f);
+    }
+}
+
 HWND hMainWnd;
 DWORD* backBufferPixels = NULL;
 HDC backBufferDC = NULL;
 HBITMAP backBufferDIB = NULL;
+HDC g_renderDC = NULL;
+HBITMAP g_renderBitmap = NULL;
+HBITMAP g_renderOldBitmap = NULL;
 
 DWORD* grassPixels = NULL;
 DWORD* npcPixels = NULL;
@@ -1377,6 +1599,468 @@ float clawReturnSpeed = 3.0f;
 
 DWORD* errorPixels = NULL;
 int errorW = 0, errorH = 0;
+
+// Post-Processing Globals
+DWORD* renderBuffer = NULL;
+int* distortionLUT = NULL;
+int* redOffsetLUT = NULL;
+int* blueOffsetLUT = NULL;
+
+const char* g_vcrVertexShader = 
+    "#version 120\n"
+    "attribute vec2 aPos;\n"
+    "attribute vec2 aTexCoord;\n"
+    "varying vec2 vTexCoord;\n"
+    "void main() {\n"
+    "    gl_Position = vec4(aPos.x, -aPos.y, 0.0, 1.0);\n"
+    "    vTexCoord = aTexCoord;\n"
+    "}\n";
+
+const char* g_vcrFragmentShader = 
+    "#version 120\n"
+    "varying vec2 vTexCoord;\n"
+    "uniform sampler2D tex;\n"
+    "uniform float time;\n"
+    "uniform vec2 resolution;\n"
+    "\n"
+    "vec2 barrelDistort(vec2 uv, float k, float kcube, float scale) {\n"
+    "    vec2 centered = uv - 0.5;\n"
+    "    float r2 = dot(centered, centered) * 4.0;\n"
+    "    float f = 1.0 + r2 * (k + kcube * sqrt(r2));\n"
+    "    return centered * f * scale + 0.5;\n"
+    "}\n"
+    "\n"
+    "void main() {\n"
+    "    float k = 0.15;\n"
+    "    float kcube = 0.10;\n"
+    "    float scale = 0.86;\n"
+    "    \n"
+    "    vec2 uvR = barrelDistort(vTexCoord, k + 0.02, kcube, scale);\n"
+    "    vec2 uvG = barrelDistort(vTexCoord, k, kcube, scale);\n"
+    "    vec2 uvB = barrelDistort(vTexCoord, k - 0.02, kcube, scale);\n"
+    "    \n"
+    "    float r = 0.0, g = 0.0, b = 0.0;\n"
+    "    if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0)\n"
+    "        r = texture2D(tex, uvR).r;\n"
+    "    if (uvG.x >= 0.0 && uvG.x <= 1.0 && uvG.y >= 0.0 && uvG.y <= 1.0)\n"
+    "        g = texture2D(tex, uvG).g;\n"
+    "    if (uvB.x >= 0.0 && uvB.x <= 1.0 && uvB.y >= 0.0 && uvB.y <= 1.0)\n"
+    "        b = texture2D(tex, uvB).b;\n"
+    "    \n"
+    "    vec3 col = vec3(r, g, b);\n"
+    "    \n"
+    "    float scanline = sin((vTexCoord.y * resolution.y + time * 2.0) * 3.14159 * 0.5) * 0.5 + 0.5;\n"
+    "    col *= 0.9 + 0.1 * scanline;\n"
+    "    \n"
+    "    float noise = fract(sin(dot(vTexCoord * time, vec2(12.9898, 78.233))) * 43758.5453);\n"
+    "    col += (noise - 0.5) * 0.03;\n"
+    "    \n"
+    "    vec2 uvCheck = barrelDistort(vTexCoord, k, kcube, scale);\n"
+    "    if (uvCheck.x < 0.0 || uvCheck.x > 1.0 || uvCheck.y < 0.0 || uvCheck.y > 1.0)\n"
+    "        col = vec3(0.0);\n"
+    "    \n"
+    "    gl_FragColor = vec4(col, 1.0);\n"
+    "}\n";
+
+const char* g_raycastComputeShader =
+    "#version 430\n"
+    "layout(local_size_x = 16, local_size_y = 16) in;\n"
+    "layout(rgba8, binding = 0) writeonly uniform image2D renderOutput;\n"
+    "layout(r32f, binding = 1) writeonly uniform image2D zBufferOutput;\n"
+    "layout(std430, binding = 2) readonly buffer MapData { int worldMap[4096]; };\n"
+    "layout(binding = 3) uniform sampler2D grassTex;\n"
+    "layout(binding = 4) uniform sampler2D borderWallTex;\n"
+    "layout(binding = 5) uniform sampler2D gateWallTex;\n"
+    "uniform vec2 playerPos;\n"
+    "uniform float playerAngle;\n"
+    "uniform float playerPitch;\n"
+    "uniform int bossActive;\n"
+    "uniform ivec2 screenSize;\n"
+    "const float PI = 3.14159265;\n"
+    "const float FOV = PI / 3.0;\n"
+    "const int MAP_SIZE = 64;\n"
+    "\n"
+    "int getMap(int x, int y) {\n"
+    "    if (x < 0 || x >= MAP_SIZE || y < 0 || y >= MAP_SIZE) return 3;\n"
+    "    return worldMap[x * MAP_SIZE + y];\n"
+    "}\n"
+    "\n"
+    "void main() {\n"
+    "    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);\n"
+    "    if (pixelCoord.x >= screenSize.x || pixelCoord.y >= screenSize.y) return;\n"
+    "    int x = pixelCoord.x;\n"
+    "    int y = pixelCoord.y;\n"
+    "    float rayAngle = (playerAngle - FOV / 2.0) + (float(x) / float(screenSize.x)) * FOV;\n"
+    "    float rayDirX = cos(rayAngle);\n"
+    "    float rayDirY = sin(rayAngle);\n"
+    "    int mapX = int(playerPos.x);\n"
+    "    int mapY = int(playerPos.y);\n"
+    "    float sideDistX, sideDistY;\n"
+    "    float deltaDistX = (rayDirX == 0.0) ? 1e30 : abs(1.0 / rayDirX);\n"
+    "    float deltaDistY = (rayDirY == 0.0) ? 1e30 : abs(1.0 / rayDirY);\n"
+    "    int stepX, stepY;\n"
+    "    if (rayDirX < 0.0) { stepX = -1; sideDistX = (playerPos.x - float(mapX)) * deltaDistX; }\n"
+    "    else { stepX = 1; sideDistX = (float(mapX) + 1.0 - playerPos.x) * deltaDistX; }\n"
+    "    if (rayDirY < 0.0) { stepY = -1; sideDistY = (playerPos.y - float(mapY)) * deltaDistY; }\n"
+    "    else { stepY = 1; sideDistY = (float(mapY) + 1.0 - playerPos.y) * deltaDistY; }\n"
+    "    bool hitWall = false;\n"
+    "    int side = 0;\n"
+    "    int wallType = 0;\n"
+    "    float distanceToWall = 0.0;\n"
+    "    for (int i = 0; i < 128 && !hitWall && distanceToWall < 90.0; i++) {\n"
+    "        if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }\n"
+    "        else { sideDistY += deltaDistY; mapY += stepY; side = 1; }\n"
+    "        if (mapX < 0 || mapX >= MAP_SIZE || mapY < 0 || mapY >= MAP_SIZE) {\n"
+    "            hitWall = true; wallType = 3; distanceToWall = 90.0;\n"
+    "        } else if (getMap(mapX, mapY) > 0) {\n"
+    "            hitWall = true; wallType = getMap(mapX, mapY);\n"
+    "            if (side == 0) distanceToWall = (float(mapX) - playerPos.x + float(1 - stepX) / 2.0) / rayDirX;\n"
+    "            else distanceToWall = (float(mapY) - playerPos.y + float(1 - stepY) / 2.0) / rayDirY;\n"
+    "        }\n"
+    "    }\n"
+    "    float correctedDist = distanceToWall * cos(rayAngle - playerAngle);\n"
+    "    float wallX;\n"
+    "    if (side == 0) wallX = playerPos.y + distanceToWall * rayDirY;\n"
+    "    else wallX = playerPos.x + distanceToWall * rayDirX;\n"
+    "    wallX = fract(wallX);\n"
+    "    int ceiling, floorLine;\n"
+    "    if (wallType == 3 && distanceToWall >= 90.0) {\n"
+    "        ceiling = 0; floorLine = screenSize.y / 2 + int(playerPitch);\n"
+    "    } else {\n"
+    "        int wallHeight = int(float(screenSize.y) / correctedDist);\n"
+    "        ceiling = screenSize.y / 2 - wallHeight / 2 + int(playerPitch);\n"
+    "        floorLine = screenSize.y / 2 + wallHeight / 2 + int(playerPitch);\n"
+    "    }\n"
+    "    vec4 color = vec4(0.0);\n"
+    "    float zVal = 1000.0;\n"
+    "    int halfH = screenSize.y / 2;\n"
+    "    if (y <= halfH + int(playerPitch)) {\n"
+    "        float skyGrad = float(y) / float(halfH);\n"
+    "        vec3 skyCol;\n"
+    "        if (bossActive != 0) {\n"
+    "            skyCol = vec3(0.588 + 0.392 * (1.0 - skyGrad), 0.078 * (1.0 - skyGrad), 0.078 * (1.0 - skyGrad));\n"
+    "        } else {\n"
+    "            skyCol = vec3(0.118 + 0.314 * (1.0 - skyGrad), 0.235 + 0.471 * (1.0 - skyGrad), 0.392 + 0.608 * (1.0 - skyGrad));\n"
+    "        }\n"
+    "        float horizonFog = skyGrad * skyGrad;\n"
+    "        skyCol = mix(skyCol, vec3(0.5), horizonFog);\n"
+    "        color = vec4(skyCol, 1.0);\n"
+    "        zVal = 1000.0;\n"
+    "    }\n"
+    "    if (y > halfH + int(playerPitch)) {\n"
+    "        float rowDist = float(halfH) / float(y - halfH);\n"
+    "        float floorX = playerPos.x + cos(rayAngle) * rowDist;\n"
+    "        float floorY = playerPos.y + sin(rayAngle) * rowDist;\n"
+    "        vec2 texCoord = fract(vec2(floorX, floorY));\n"
+    "        vec4 floorCol = texture(grassTex, texCoord);\n"
+    "        float shade = 1.0 - (rowDist / 20.0);\n"
+    "        shade = max(shade, 0.15);\n"
+    "        float fogFactor = clamp((rowDist - 17.0) / 13.0, 0.0, 1.0);\n"
+    "        vec3 finalCol = floorCol.rgb * shade * (1.0 - fogFactor) + vec3(0.5) * fogFactor;\n"
+    "        color = vec4(finalCol, 1.0);\n"
+    "        zVal = rowDist;\n"
+    "    }\n"
+    "    if (y >= ceiling && y <= floorLine) {\n"
+    "        float shade = 1.0 - (correctedDist / 50.0);\n"
+    "        shade = max(shade, 0.1);\n"
+    "        if (side == 1) shade *= 0.8;\n"
+    "        float fogFactor = clamp((correctedDist - 17.0) / 13.0, 0.0, 1.0);\n"
+    "        if (wallType == 3 && distanceToWall < 90.0) {\n"
+    "            int wallHeight = floorLine - ceiling;\n"
+    "            if (wallHeight <= 0) wallHeight = 1;\n"
+    "            float texYf = float(y - ceiling) / float(wallHeight);\n"
+    "            vec4 wallCol = texture(borderWallTex, vec2(wallX, texYf));\n"
+    "            if (wallCol.a > 0.0) {\n"
+    "                vec3 finalCol = wallCol.rgb * shade * (1.0 - fogFactor) + vec3(0.5) * fogFactor;\n"
+    "                color = vec4(finalCol, 1.0);\n"
+    "                zVal = correctedDist;\n"
+    "            }\n"
+    "        } else if (wallType == 4) {\n"
+    "            int wallHeight = floorLine - ceiling;\n"
+    "            if (wallHeight <= 0) wallHeight = 1;\n"
+    "            float texYf = float(y - ceiling) / float(wallHeight);\n"
+    "            vec4 wallCol = texture(gateWallTex, vec2(wallX, texYf));\n"
+    "            if (wallCol.a > 0.0) {\n"
+    "                vec3 finalCol = wallCol.rgb * shade * (1.0 - fogFactor) + vec3(0.5) * fogFactor;\n"
+    "                color = vec4(finalCol, 1.0);\n"
+    "                zVal = correctedDist;\n"
+    "            }\n"
+    "        } else if (wallType != 3 && wallType != 4) {\n"
+    "            vec3 wallCol;\n"
+    "            if (wallType == 2) wallCol = vec3(0.235, 0.392, 0.157);\n"
+    "            else wallCol = vec3(0.549, 0.392, 0.235);\n"
+    "            vec3 finalCol = wallCol * shade * (1.0 - fogFactor) + vec3(0.5) * fogFactor;\n"
+    "            color = vec4(finalCol, 1.0);\n"
+    "            zVal = correctedDist;\n"
+    "        }\n"
+    "    }\n"
+    "    imageStore(renderOutput, pixelCoord, color);\n"
+    "    imageStore(zBufferOutput, pixelCoord, vec4(zVal, 0.0, 0.0, 0.0));\n"
+    "}\n";
+
+bool InitOpenGL(HWND hwnd) {
+    g_glDC = GetDC(hwnd);
+    if (!g_glDC) return false;
+    
+    PIXELFORMATDESCRIPTOR pfd = {};
+    pfd.nSize = sizeof(pfd);
+    pfd.nVersion = 1;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+    pfd.cDepthBits = 24;
+    pfd.iLayerType = PFD_MAIN_PLANE;
+    
+    int pixelFormat = ChoosePixelFormat(g_glDC, &pfd);
+    if (!pixelFormat) return false;
+    
+    if (!SetPixelFormat(g_glDC, pixelFormat, &pfd)) return false;
+    
+    g_glRC = wglCreateContext(g_glDC);
+    if (!g_glRC) return false;
+    
+    if (!wglMakeCurrent(g_glDC, g_glRC)) return false;
+    
+    glCreateShader = (PFNGLCREATESHADERPROC)wglGetProcAddress("glCreateShader");
+    glShaderSource = (PFNGLSHADERSOURCEPROC)wglGetProcAddress("glShaderSource");
+    glCompileShader = (PFNGLCOMPILESHADERPROC)wglGetProcAddress("glCompileShader");
+    glGetShaderiv = (PFNGLGETSHADERIVPROC)wglGetProcAddress("glGetShaderiv");
+    glGetShaderInfoLog = (PFNGLGETSHADERINFOLOGPROC)wglGetProcAddress("glGetShaderInfoLog");
+    glCreateProgram = (PFNGLCREATEPROGRAMPROC)wglGetProcAddress("glCreateProgram");
+    glAttachShader = (PFNGLATTACHSHADERPROC)wglGetProcAddress("glAttachShader");
+    glLinkProgram = (PFNGLLINKPROGRAMPROC)wglGetProcAddress("glLinkProgram");
+    glGetProgramiv = (PFNGLGETPROGRAMIVPROC)wglGetProcAddress("glGetProgramiv");
+    glUseProgram = (PFNGLUSEPROGRAMPROC)wglGetProcAddress("glUseProgram");
+    glGetUniformLocation = (PFNGLGETUNIFORMLOCATIONPROC)wglGetProcAddress("glGetUniformLocation");
+    glUniform1f = (PFNGLUNIFORM1FPROC)wglGetProcAddress("glUniform1f");
+    glUniform2f = (PFNGLUNIFORM2FPROC)wglGetProcAddress("glUniform2f");
+    glUniform1i = (PFNGLUNIFORM1IPROC)wglGetProcAddress("glUniform1i");
+    glActiveTexture = (PFNGLACTIVETEXTUREPROC)wglGetProcAddress("glActiveTexture");
+    glGenBuffers = (PFNGLGENBUFFERSPROC)wglGetProcAddress("glGenBuffers");
+    glBindBuffer = (PFNGLBINDBUFFERPROC)wglGetProcAddress("glBindBuffer");
+    glBufferData = (PFNGLBUFFERDATAPROC)wglGetProcAddress("glBufferData");
+    glVertexAttribPointer = (PFNGLVERTEXATTRIBPOINTERPROC)wglGetProcAddress("glVertexAttribPointer");
+    glEnableVertexAttribArray = (PFNGLENABLEVERTEXATTRIBARRAYPROC)wglGetProcAddress("glEnableVertexAttribArray");
+    glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)wglGetProcAddress("glGenVertexArrays");
+    glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)wglGetProcAddress("glBindVertexArray");
+    glDeleteShader = (PFNGLDELETESHADERPROC)wglGetProcAddress("glDeleteShader");
+    
+    if (!glCreateShader || !glShaderSource || !glCompileShader || !glCreateProgram ||
+        !glAttachShader || !glLinkProgram || !glUseProgram || !glGetUniformLocation) {
+        return false;
+    }
+    
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &g_vcrVertexShader, NULL);
+    glCompileShader(vs);
+    
+    GLint compiled = 0;
+    glGetShaderiv(vs, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        glDeleteShader(vs);
+        return false;
+    }
+    
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &g_vcrFragmentShader, NULL);
+    glCompileShader(fs);
+    
+    glGetShaderiv(fs, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        return false;
+    }
+    
+    g_vcrProgram = glCreateProgram();
+    glAttachShader(g_vcrProgram, vs);
+    glAttachShader(g_vcrProgram, fs);
+    glLinkProgram(g_vcrProgram);
+    
+    GLint linked = 0;
+    glGetProgramiv(g_vcrProgram, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        return false;
+    }
+    
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    
+    g_locTex = glGetUniformLocation(g_vcrProgram, "tex");
+    g_locTime = glGetUniformLocation(g_vcrProgram, "time");
+    g_locResolution = glGetUniformLocation(g_vcrProgram, "resolution");
+    
+    glGenTextures(1, &g_vcrTexture);
+    glBindTexture(GL_TEXTURE_2D, g_vcrTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    
+    if (glGenVertexArrays && glBindVertexArray && glGenBuffers && glBindBuffer && glBufferData) {
+        float quadVerts[] = {
+            -1.0f, -1.0f, 0.0f, 1.0f,
+             1.0f, -1.0f, 1.0f, 1.0f,
+             1.0f,  1.0f, 1.0f, 0.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f,
+             1.0f,  1.0f, 1.0f, 0.0f,
+            -1.0f,  1.0f, 0.0f, 0.0f
+        };
+        
+        glGenVertexArrays(1, &g_vcrVAO);
+        glBindVertexArray(g_vcrVAO);
+        
+        glGenBuffers(1, &g_vcrVBO);
+        glBindBuffer(GL_ARRAY_BUFFER, g_vcrVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVerts), quadVerts, GL_STATIC_DRAW);
+        
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+    }
+    
+    glDispatchCompute = (PFNGLDISPATCHCOMPUTEPROC)wglGetProcAddress("glDispatchCompute");
+    glMemoryBarrier = (PFNGLMEMORYBARRIERPROC)wglGetProcAddress("glMemoryBarrier");
+    glBindImageTexture = (PFNGLBINDIMAGETEXTUREPROC)wglGetProcAddress("glBindImageTexture");
+    glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)wglGetProcAddress("glBindBufferBase");
+    glTexStorage2D = (PFNGLTEXSTORAGE2DPROC)wglGetProcAddress("glTexStorage2D");
+    
+    if (glDispatchCompute && glMemoryBarrier && glBindImageTexture && glBindBufferBase && glTexStorage2D) {
+        GLuint cs = glCreateShader(GL_COMPUTE_SHADER);
+        glShaderSource(cs, 1, &g_raycastComputeShader, NULL);
+        glCompileShader(cs);
+        
+        GLint compiled = 0;
+        glGetShaderiv(cs, GL_COMPILE_STATUS, &compiled);
+        if (compiled) {
+            g_raycastProgram = glCreateProgram();
+            glAttachShader(g_raycastProgram, cs);
+            glLinkProgram(g_raycastProgram);
+            
+            GLint linked = 0;
+            glGetProgramiv(g_raycastProgram, GL_LINK_STATUS, &linked);
+            if (linked) {
+                g_rcLocPlayerPos = glGetUniformLocation(g_raycastProgram, "playerPos");
+                g_rcLocPlayerAngle = glGetUniformLocation(g_raycastProgram, "playerAngle");
+                g_rcLocPlayerPitch = glGetUniformLocation(g_raycastProgram, "playerPitch");
+                g_rcLocBossActive = glGetUniformLocation(g_raycastProgram, "bossActive");
+                g_rcLocScreenSize = glGetUniformLocation(g_raycastProgram, "screenSize");
+                
+                glGenTextures(1, &g_renderTex);
+                glBindTexture(GL_TEXTURE_2D, g_renderTex);
+                glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, SCREEN_WIDTH, SCREEN_HEIGHT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                
+                glGenTextures(1, &g_zBufferTex);
+                glBindTexture(GL_TEXTURE_2D, g_zBufferTex);
+                glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32F, SCREEN_WIDTH, SCREEN_HEIGHT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                
+                glGenBuffers(1, &g_mapSSBO);
+                
+                g_gpuRaycastAvailable = true;
+            }
+        }
+        glDeleteShader(cs);
+    }
+    
+    g_glInitialized = true;
+    return true;
+}
+
+void InitPostProcess() {
+    if (renderBuffer) free(renderBuffer);
+    renderBuffer = (DWORD*)malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(DWORD));
+    
+    if (distortionLUT) free(distortionLUT);
+    if (redOffsetLUT) free(redOffsetLUT);
+    if (blueOffsetLUT) free(blueOffsetLUT);
+    distortionLUT = NULL;
+    redOffsetLUT = NULL;
+    blueOffsetLUT = NULL;
+}
+
+void ApplyPostProcess() {
+    if (!renderBuffer) return;
+    
+    g_glTime += 0.016f;
+    
+    if (g_glInitialized && g_vcrProgram && backBufferPixels) {
+        glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        glClear(GL_COLOR_BUFFER_BIT);
+        
+        glBindTexture(GL_TEXTURE_2D, g_vcrTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCREEN_WIDTH, SCREEN_HEIGHT, 0, GL_BGRA, GL_UNSIGNED_BYTE, renderBuffer);
+        
+        if (g_EnableVHS) {
+            glUseProgram(g_vcrProgram);
+            glUniform1i(g_locTex, 0);
+            glUniform1f(g_locTime, g_glTime);
+            glUniform2f(g_locResolution, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT);
+            
+            if (g_vcrVAO && glBindVertexArray) {
+                glBindVertexArray(g_vcrVAO);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+        } else {
+            glUseProgram(0);
+            glEnable(GL_TEXTURE_2D);
+            glBegin(GL_QUADS);
+            glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+            glTexCoord2f(1.0f, 0.0f); glVertex2f( 1.0f, -1.0f);
+            glTexCoord2f(1.0f, 1.0f); glVertex2f( 1.0f,  1.0f);
+            glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f,  1.0f);
+            glEnd();
+            glDisable(GL_TEXTURE_2D);
+        }
+        
+        glReadPixels(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, GL_BGRA, GL_UNSIGNED_BYTE, backBufferPixels);
+    } else {
+        if (backBufferPixels) {
+            memcpy(backBufferPixels, renderBuffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(DWORD));
+        }
+    }
+}
+
+void FinalizePostProcess(HDC memDC) {
+    (void)memDC;
+    if (!g_glInitialized || !g_vcrProgram || !renderBuffer) return;
+    
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    glClear(GL_COLOR_BUFFER_BIT);
+    
+    glBindTexture(GL_TEXTURE_2D, g_vcrTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCREEN_WIDTH, SCREEN_HEIGHT, 0, GL_BGRA, GL_UNSIGNED_BYTE, renderBuffer);
+    
+    if (g_EnableVHS) {
+        glUseProgram(g_vcrProgram);
+        glUniform1i(g_locTex, 0);
+        glUniform1f(g_locTime, g_glTime);
+        glUniform2f(g_locResolution, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT);
+        
+        if (g_vcrVAO && glBindVertexArray) {
+            glBindVertexArray(g_vcrVAO);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+    } else {
+        glUseProgram(0);
+        glEnable(GL_TEXTURE_2D);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex2f( 1.0f, -1.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex2f( 1.0f,  1.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f,  1.0f);
+        glEnd();
+        glDisable(GL_TEXTURE_2D);
+    }
+    
+    SwapBuffers(g_glDC);
+}
 
 bool keys[256] = {false};
 wchar_t loadStatus[256] = L"Loading...";
@@ -1663,6 +2347,10 @@ void TryLoadAssets() {
     compassPixels = LoadBMPPixels(path, &compassW, &compassH);
     if (!compassPixels) { missingAssets.push_back(L"compass.bmp"); if (errorPixels) { compassPixels = errorPixels; compassW = errorW; compassH = errorH; } }
 
+    swprintf(path, MAX_PATH, L"%ls\\assets\\items\\grave.bmp", exePath);
+    gravePixels = LoadBMPPixels(path, &graveW, &graveH);
+    if (!gravePixels) { missingAssets.push_back(L"grave.bmp"); if (errorPixels) { gravePixels = errorPixels; graveW = errorW; graveH = errorH; } }
+
     // Healing Tower Assets
     swprintf(path, MAX_PATH, L"%ls\\assets\\healing_tower\\healing_tower_dormant.bmp", exePath);
     htDormantPixels = LoadBMPPixels(path, &htDormantW, &htDormantH);
@@ -1732,7 +2420,8 @@ void GenerateWorld() {
     }
 
     
-    for (int i = 0; i < 600; i++) {
+    int outerTrees = g_PerformanceMode ? 300 : 600;
+    for (int i = 0; i < outerTrees; i++) {
         int side = rand() % 4;
         float tx, ty;
         switch (side) {
@@ -1745,7 +2434,8 @@ void GenerateWorld() {
         trees.push_back(tree);
     }
     
-    for (int i = 0; i < 400; i++) {
+    int innerTrees = g_PerformanceMode ? 200 : 400;
+    for (int i = 0; i < innerTrees; i++) {
         int side = rand() % 4;
         float tx, ty;
         switch (side) {
@@ -1758,7 +2448,9 @@ void GenerateWorld() {
         trees.push_back(tree);
     }
     
-    int numTrees = 250 + rand() % 50;
+    int baseNum = g_PerformanceMode ? 125 : 250;
+    int varNum = g_PerformanceMode ? 25 : 50;
+    int numTrees = baseNum + rand() % varNum;
     for (int i = 0; i < numTrees; i++) {
         float tx = 8.0f + (rand() % ((MAP_WIDTH - 16) * 10)) / 10.0f;
         float ty = 8.0f + (rand() % ((MAP_HEIGHT - 16) * 10)) / 10.0f;
@@ -1819,8 +2511,8 @@ void GenerateWorld() {
         float by = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
         float distToCenter = sqrtf((bx - 32)*(bx - 32) + (by - 32)*(by - 32));
         
-        // Ensure not too close to center (Spire) and not inside walls
-        if (distToCenter > 10.0f && worldMap[(int)bx][(int)by] == 0) {
+        float distToPlayerStart = sqrtf((bx - 10.0f)*(bx - 10.0f) + (by - 32.0f)*(by - 32.0f));
+        if (distToPlayerStart > 8.0f && distToCenter > 10.0f && worldMap[(int)bx][(int)by] == 0) {
             // Check distance to other big rocks to avoid stacking
             bool overlaps = false;
             for(const auto& existing : bigRocks) {
@@ -1982,11 +2674,26 @@ void SpawnEnemies() {
     
     for (int i = 0; i < 3; i++) {
         Enemy enemy;
+        bool validSpawn = false;
         do {
             enemy.x = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
             enemy.y = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
-        } while (worldMap[(int)enemy.x][(int)enemy.y] != 0 || 
-                 sqrtf((enemy.x - player.x)*(enemy.x - player.x) + (enemy.y - player.y)*(enemy.y - player.y)) < 10.0f);
+            
+            bool insideRock = false;
+            for(const auto& br : bigRocks) {
+                float dx = enemy.x - br.x;
+                float dy = enemy.y - br.y;
+                if (dx*dx + dy*dy < (br.radius + 1.0f)*(br.radius + 1.0f)) { 
+                    insideRock = true; 
+                    break;
+                }
+            }
+            
+            if (!insideRock && worldMap[(int)enemy.x][(int)enemy.y] == 0 && 
+                sqrtf((enemy.x - player.x)*(enemy.x - player.x) + (enemy.y - player.y)*(enemy.y - player.y)) >= 10.0f) {
+                validSpawn = true;
+            }
+        } while (!validSpawn);
         enemy.active = true;
         enemy.speed = 1.5f + (rand() % 100) / 100.0f;
         enemy.distance = 0;
@@ -2013,9 +2720,7 @@ void SpawnEnemies() {
     }
 }
 
-inline DWORD MakeColor(int r, int g, int b) {
-    return (r << 16) | (g << 8) | b;
-}
+
 
 inline void ApplyHurtFlash_Fast(DWORD* pixels, int count, float intensity) {
     if (intensity > 1.0f) intensity = 1.0f;
@@ -2080,42 +2785,87 @@ inline void ApplyHurtFlash_Fast(DWORD* pixels, int count, float intensity) {
 }
 
 inline void ApplyHealFlash_Fast(DWORD* pixels, int count, int alpha) {
-    for (int i = 0; i < count - 3; i += 4) {
-        for (int j = 0; j < 4; j++) {
-            DWORD col = pixels[i + j];
-            int r = (col >> 16) & 0xFF;
-            int g = ((col >> 8) & 0xFF) + alpha;
-            int b = col & 0xFF;
-            if (g > 255) g = 255;
-            pixels[i + j] = (r << 16) | (g << 8) | b;
-        }
+    __m128i alphaVec = _mm_set1_epi32(alpha << 8);
+    __m128i greenMask = _mm_set1_epi32(0x0000FF00);
+    __m128i maxGreen = _mm_set1_epi32(0x0000FF00);
+    __m128i otherMask = _mm_set1_epi32(0xFFFF00FF);
+    
+    int i = 0;
+    for (; i < count - 3; i += 4) {
+        __m128i pix = _mm_loadu_si128((__m128i*)&pixels[i]);
+        __m128i green = _mm_and_si128(pix, greenMask);
+        green = _mm_add_epi32(green, alphaVec);
+        green = _mm_min_epi16(green, maxGreen);
+        green = _mm_and_si128(green, greenMask);
+        __m128i other = _mm_and_si128(pix, otherMask);
+        __m128i result = _mm_or_si128(other, green);
+        _mm_storeu_si128((__m128i*)&pixels[i], result);
+    }
+    
+    for (; i < count; i++) {
+        DWORD col = pixels[i];
+        int r = (col >> 16) & 0xFF;
+        int g = ((col >> 8) & 0xFF) + alpha;
+        int b = col & 0xFF;
+        if (g > 255) g = 255;
+        pixels[i] = (r << 16) | (g << 8) | b;
     }
 }
 
 inline void ApplyBrightFade_Fast(DWORD* pixels, int count, int fadeAmount) {
-    for (int i = 0; i < count - 3; i += 4) {
-        for (int j = 0; j < 4; j++) {
-            DWORD col = pixels[i + j];
-            int r = (col >> 16) & 0xFF;
-            int g = (col >> 8) & 0xFF;
-            int b = col & 0xFF;
-            r = r + (((255 - r) * fadeAmount) >> 8);
-            g = g + (((255 - g) * fadeAmount) >> 8);
-            b = b + (((255 - b) * fadeAmount) >> 8);
-            pixels[i + j] = (r << 16) | (g << 8) | b;
-        }
+    __m128i fadeVec = _mm_set1_epi16((short)fadeAmount);
+    __m128i max255 = _mm_set1_epi16(255);
+    __m128i zero = _mm_setzero_si128();
+    
+    int i = 0;
+    for (; i < count - 3; i += 4) {
+        __m128i pix = _mm_loadu_si128((__m128i*)&pixels[i]);
+        __m128i lo = _mm_unpacklo_epi8(pix, zero);
+        __m128i hi = _mm_unpackhi_epi8(pix, zero);
+        __m128i invLo = _mm_sub_epi16(max255, lo);
+        __m128i invHi = _mm_sub_epi16(max255, hi);
+        __m128i addLo = _mm_srli_epi16(_mm_mullo_epi16(invLo, fadeVec), 8);
+        __m128i addHi = _mm_srli_epi16(_mm_mullo_epi16(invHi, fadeVec), 8);
+        lo = _mm_add_epi16(lo, addLo);
+        hi = _mm_add_epi16(hi, addHi);
+        __m128i result = _mm_packus_epi16(lo, hi);
+        _mm_storeu_si128((__m128i*)&pixels[i], result);
+    }
+    
+    for (; i < count; i++) {
+        DWORD col = pixels[i];
+        int r = (col >> 16) & 0xFF;
+        int g = (col >> 8) & 0xFF;
+        int b = col & 0xFF;
+        r = r + (((255 - r) * fadeAmount) >> 8);
+        g = g + (((255 - g) * fadeAmount) >> 8);
+        b = b + (((255 - b) * fadeAmount) >> 8);
+        pixels[i] = (r << 16) | (g << 8) | b;
     }
 }
 
 inline void ApplyVictoryBright_Fast(DWORD* pixels, int count) {
-    for (int i = 0; i < count - 3; i += 4) {
-        for (int j = 0; j < 4; j++) {
-            DWORD col = pixels[i + j];
-            int r = ((col >> 16) & 0xFF) * 77 / 256 + 179;
-            int g = ((col >> 8) & 0xFF) * 77 / 256 + 179;
-            int b = (col & 0xFF) * 77 / 256 + 179;
-            pixels[i + j] = (r << 16) | (g << 8) | b;
-        }
+    __m128i mulVec = _mm_set1_epi16(77);
+    __m128i addVec = _mm_set1_epi16(179);
+    __m128i zero = _mm_setzero_si128();
+    
+    int i = 0;
+    for (; i < count - 3; i += 4) {
+        __m128i pix = _mm_loadu_si128((__m128i*)&pixels[i]);
+        __m128i lo = _mm_unpacklo_epi8(pix, zero);
+        __m128i hi = _mm_unpackhi_epi8(pix, zero);
+        lo = _mm_add_epi16(_mm_srli_epi16(_mm_mullo_epi16(lo, mulVec), 8), addVec);
+        hi = _mm_add_epi16(_mm_srli_epi16(_mm_mullo_epi16(hi, mulVec), 8), addVec);
+        __m128i result = _mm_packus_epi16(lo, hi);
+        _mm_storeu_si128((__m128i*)&pixels[i], result);
+    }
+    
+    for (; i < count; i++) {
+        DWORD col = pixels[i];
+        int r = ((col >> 16) & 0xFF) * 77 / 256 + 179;
+        int g = ((col >> 8) & 0xFF) * 77 / 256 + 179;
+        int b = (col & 0xFF) * 77 / 256 + 179;
+        pixels[i] = (r << 16) | (g << 8) | b;
     }
 }
 
@@ -2148,6 +2898,10 @@ RaycastParams* threadParams = nullptr;
 HANDLE* rayThreads = nullptr;
 int numRayThreads = 0;
 volatile bool raycastRunning = true;
+HANDLE staticDoneEvents[16];
+
+struct SpriteRender { float x, y, dist; int type; float scale; int variant; bool isHurt; float height; bool isFiring; };
+std::vector<SpriteRender> g_allSprites;
 
 unsigned __stdcall RaycastWorker(void* param) {
     RaycastParams* rp = (RaycastParams*)param;
@@ -2255,7 +3009,7 @@ unsigned __stdcall RaycastWorker(void* param) {
                     g = (int)(g * (1.0f - horizonFog) + 128 * horizonFog);
                     b = (int)(b * (1.0f - horizonFog) + 128 * horizonFog);
                     
-                    backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(r, g, b);
+                    renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(r, g, b);
                     zBuffer[y * SCREEN_WIDTH + x] = 1000.0f;
                 }
                 
@@ -2287,7 +3041,7 @@ unsigned __stdcall RaycastWorker(void* param) {
                         int finalG = (int)(gg * shade * (1.0f - fogFactor) + 128 * fogFactor);
                         int finalB = (int)(bb * shade * (1.0f - fogFactor) + 128 * fogFactor);
                         
-                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(finalR, finalG, finalB);
+                        renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(finalR, finalG, finalB);
                     } else {
                         float shade = 1.0f - (rowDist / 40.0f);
                         if (shade < 0.1f) shade = 0.1f;
@@ -2301,7 +3055,7 @@ unsigned __stdcall RaycastWorker(void* param) {
                         int finalG = (int)(c * (1.0f - fogFactor) + 128 * fogFactor);
                         int finalB = (int)((c/2) * (1.0f - fogFactor) + 128 * fogFactor);
                         
-                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(finalR, finalG, finalB);
+                        renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(finalR, finalG, finalB);
                     }
                     
                     zBuffer[y * SCREEN_WIDTH + x] = rowDist;
@@ -2338,7 +3092,7 @@ unsigned __stdcall RaycastWorker(void* param) {
                             int rFinal = (int)(rr * shade * (1.0f - fogFactor) + 128 * fogFactor);
                             int gFinal = (int)(gg * shade * (1.0f - fogFactor) + 128 * fogFactor);
                             int bFinal = (int)(bb * shade * (1.0f - fogFactor) + 128 * fogFactor);
-                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
+                            renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
                             zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
                         }
                     } else if (wallType == 4 && gateWallPixels && gateWallW > 0 && gateWallH > 0) {
@@ -2363,7 +3117,7 @@ unsigned __stdcall RaycastWorker(void* param) {
                             int rFinal = (int)(rr * shade * (1.0f - fogFactor) + 128 * fogFactor);
                             int gFinal = (int)(gg * shade * (1.0f - fogFactor) + 128 * fogFactor);
                             int bFinal = (int)(bb * shade * (1.0f - fogFactor) + 128 * fogFactor);
-                            backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
+                            renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
                             zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
                         }
                     } else if (wallType != 3 && wallType != 4) {
@@ -2378,7 +3132,7 @@ unsigned __stdcall RaycastWorker(void* param) {
                         int gFinal = (int)(g * (1.0f - fogFactor) + 128 * fogFactor);
                         int bFinal = (int)(b * (1.0f - fogFactor) + 128 * fogFactor);
                         
-                        backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
+                        renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(rFinal, gFinal, bFinal);
                         
                         zBuffer[y * SCREEN_WIDTH + x] = correctedDist;
                     }
@@ -2430,15 +3184,110 @@ void CleanupThreadPool() {
 }
 
 void CastRays() {
-    HANDLE* doneEvents = new HANDLE[numRayThreads];
-    
     for (int i = 0; i < numRayThreads; i++) {
-        doneEvents[i] = threadParams[i].doneEvent;
+        staticDoneEvents[i] = threadParams[i].doneEvent;
         SetEvent(threadParams[i].startEvent);
     }
     
-    WaitForMultipleObjects(numRayThreads, doneEvents, TRUE, INFINITE);
-    delete[] doneEvents;
+    WaitForMultipleObjects(numRayThreads, staticDoneEvents, TRUE, INFINITE);
+}
+
+bool g_mapUploaded = false;
+
+void UploadMapToGPU() {
+    if (!g_gpuRaycastAvailable || !g_mapSSBO) return;
+    
+    int mapData[MAP_WIDTH * MAP_HEIGHT];
+    for (int x = 0; x < MAP_WIDTH; x++) {
+        for (int y = 0; y < MAP_HEIGHT; y++) {
+            mapData[x * MAP_HEIGHT + y] = worldMap[x][y];
+        }
+    }
+    
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_mapSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(mapData), mapData, GL_STATIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    g_mapUploaded = true;
+}
+
+void UploadTextureToGPU(GLuint& tex, DWORD* pixels, int w, int h, int texUnit) {
+    if (!pixels || w <= 0 || h <= 0) return;
+    
+    if (tex == 0) {
+        glGenTextures(1, &tex);
+    }
+    
+    glActiveTexture(GL_TEXTURE0 + texUnit);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
+}
+
+void GPUCastRays() {
+    if (!g_gpuRaycastAvailable) {
+        CastRays();
+        return;
+    }
+    
+    if (!g_mapUploaded) {
+        UploadMapToGPU();
+        UploadTextureToGPU(g_grassTex, grassPixels, grassW, grassH, 3);
+        UploadTextureToGPU(g_borderWallTex, borderWallPixels, borderWallW, borderWallH, 4);
+        UploadTextureToGPU(g_gateWallTex, gateWallPixels, gateWallW, gateWallH, 5);
+    }
+    
+    glUseProgram(g_raycastProgram);
+    
+    glUniform2f(g_rcLocPlayerPos, player.x, player.y);
+    glUniform1f(g_rcLocPlayerAngle, player.angle);
+    glUniform1f(g_rcLocPlayerPitch, player.pitch);
+    glUniform1i(g_rcLocBossActive, bossActive ? 1 : 0);
+    
+    GLint screenSizeLoc = glGetUniformLocation(g_raycastProgram, "screenSize");
+    if (screenSizeLoc >= 0) {
+        typedef void (*PFNGLUNIFORM2IVPROC)(GLint location, GLsizei count, const GLint* value);
+        PFNGLUNIFORM2IVPROC glUniform2iv = (PFNGLUNIFORM2IVPROC)wglGetProcAddress("glUniform2iv");
+        if (glUniform2iv) {
+            GLint screenSize[2] = {SCREEN_WIDTH, SCREEN_HEIGHT};
+            glUniform2iv(screenSizeLoc, 1, screenSize);
+        }
+    }
+    
+    glBindImageTexture(0, g_renderTex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+    glBindImageTexture(1, g_zBufferTex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, g_mapSSBO);
+    
+    glActiveTexture(GL_TEXTURE0 + 3);
+    glBindTexture(GL_TEXTURE_2D, g_grassTex);
+    glActiveTexture(GL_TEXTURE0 + 4);
+    glBindTexture(GL_TEXTURE_2D, g_borderWallTex);
+    glActiveTexture(GL_TEXTURE0 + 5);
+    glBindTexture(GL_TEXTURE_2D, g_gateWallTex);
+    
+    GLuint groupsX = (SCREEN_WIDTH + 15) / 16;
+    GLuint groupsY = (SCREEN_HEIGHT + 15) / 16;
+    glDispatchCompute(groupsX, groupsY, 1);
+    
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+    
+    glBindTexture(GL_TEXTURE_2D, g_renderTex);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_BGRA, GL_UNSIGNED_BYTE, renderBuffer);
+    
+    static float* gpuZBuffer = nullptr;
+    if (!gpuZBuffer) {
+        gpuZBuffer = new float[SCREEN_WIDTH * SCREEN_HEIGHT];
+    }
+    glBindTexture(GL_TEXTURE_2D, g_zBufferTex);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, gpuZBuffer);
+    
+    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
+        zBuffer[i] = gpuZBuffer[i];
+    }
+    
+    glUseProgram(0);
 }
 
 // --- 3D Rasterizer ---
@@ -2473,7 +3322,7 @@ void RasterizeTri(Vec3 v1, Vec3 v2, Vec3 v3, DWORD color) {
                 // Z-Buffer Check
                 if(z < zBuffer[y * SCREEN_WIDTH + x]) {
                     zBuffer[y * SCREEN_WIDTH + x] = z;
-                    backBufferPixels[y * SCREEN_WIDTH + x] = color;
+                    renderBuffer[y * SCREEN_WIDTH + x] = color;
                 }
             }
         }
@@ -2637,14 +3486,13 @@ void RenderSprite(DWORD* pixels, int pxW, int pxH, float sx, float sy, float dis
             int gFinal = (gShaded * invFogFixed + 128 * fogFixed) >> 8;
             int bFinal = (bShaded * invFogFixed + 128 * fogFixed) >> 8;
             
-            backBufferPixels[bufIdx] = MakeColor(rFinal, gFinal, bFinal);
+            renderBuffer[bufIdx] = MakeColor(rFinal, gFinal, bFinal);
         }
     }
 }
 
 void RenderSprites() {
-    struct SpriteRender { float x, y, dist; int type; float scale; int variant; bool isHurt; float height; bool isFiring; };
-    std::vector<SpriteRender> allSprites;
+    g_allSprites.clear();
     
     DWORD* sPix = NULL;
     int sW, sH;
@@ -2676,14 +3524,22 @@ void RenderSprites() {
     float dx = 32.0f - player.x;
     float dy = 32.0f - player.y;
     float dist = sqrtf(dx*dx + dy*dy);
-    allSprites.push_back({32.0f, 32.0f, dist, 2, 8.0f, 0, false, 0.0f, false});
+    g_allSprites.push_back({32.0f, 32.0f, dist, 2, 8.0f, 0, false, 0.0f, false});
+
+    // Render Graves
+    for(const auto& g : graves) {
+        float gdx = g.x - player.x;
+        float gdy = g.y - player.y;
+        float gdist = sqrtf(gdx*gdx + gdy*gdy);
+        g_allSprites.push_back({g.x, g.y, gdist, 99, 1.0f, 0, false, 0.0f, false});
+    }
 
     for(auto& fb : fireballs) {
         if(!fb.active) continue;
         float fdx = fb.x - player.x;
         float fdy = fb.y - player.y;
         float fdist = sqrtf(fdx*fdx + fdy*fdy);
-        allSprites.push_back({fb.x, fb.y, fdist, 3, 2.0f, 0, false, 0.0f, false});
+        g_allSprites.push_back({fb.x, fb.y, fdist, 3, 2.0f, 0, false, 0.0f, false});
     }
     
     for (int i = 0; i < 3; i++) {
@@ -2691,44 +3547,51 @@ void RenderSprites() {
             float mdx = medkits[i].x - player.x;
             float mdy = medkits[i].y - player.y;
             float mdist = sqrtf(mdx*mdx + mdy*mdy);
-            allSprites.push_back({medkits[i].x, medkits[i].y, mdist, 4, 0.8f, 0, false, 0.0f, false});
+            g_allSprites.push_back({medkits[i].x, medkits[i].y, mdist, 4, 0.8f, 0, false, 0.0f, false});
         }
     }
 
     for (auto& tree : trees) {
+        if (!IsInFrustum(tree.x, tree.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
         float dx = tree.x - player.x;
         float dy = tree.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 30.0f) {
-            allSprites.push_back({tree.x, tree.y, dist, 0, 6.0f, 0, false, 0.0f, false});
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 900.0f) {
+            float dist = sqrtf(distSq);
+            g_allSprites.push_back({tree.x, tree.y, dist, 0, 6.0f, 0, false, 0.0f, false});
         }
     }
     
     for (auto& grass : grasses) {
+        if (!IsInFrustum(grass.x, grass.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
         float dx = grass.x - player.x;
         float dy = grass.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 25.0f) {
-            allSprites.push_back({grass.x, grass.y, dist, 11, 0.3f, 0, false, 0.0f, false});
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 625.0f) {
+            float dist = sqrtf(distSq);
+            g_allSprites.push_back({grass.x, grass.y, dist, 11, 0.3f, 0, false, 0.0f, false});
         }
     }
     
     for (auto& rock : rocks) {
+        if (!IsInFrustum(rock.x, rock.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
         float dx = rock.x - player.x;
         float dy = rock.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 30.0f) {
-            allSprites.push_back({rock.x, rock.y, dist, 12, 0.3f, rock.variant, false, 0.0f, false});
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 900.0f) {
+            float dist = sqrtf(distSq);
+            g_allSprites.push_back({rock.x, rock.y, dist, 12, 0.3f, rock.variant, false, 0.0f, false});
         }
     }
     
     for (auto& br : bigRocks) {
+        if (!IsInFrustum(br.x, br.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
         float dx = br.x - player.x;
         float dy = br.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 35.0f) {
-            allSprites.push_back({br.x, br.y, dist, 14, 1.5f, br.variant, false, 0.0f, false});
-
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 1225.0f) {
+            float dist = sqrtf(distSq);
+            g_allSprites.push_back({br.x, br.y, dist, 14, 1.5f, br.variant, false, 0.0f, false});
         }
     }
     
@@ -2736,8 +3599,9 @@ void RenderSprites() {
     {
         float dx = healingTower.x - player.x;
         float dy = healingTower.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 35.0f) {
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 1225.0f) {
+            float dist = sqrtf(distSq);
              // Type 20
              int variant = 0; // 0=Dormant, 1=Charging0, 2=Charging1, 3=Ready
              if (healingTower.state == TOWER_DORMANT) variant = 0;
@@ -2745,7 +3609,7 @@ void RenderSprites() {
              else variant = 3;
              
              // 2.0f scale for tower
-             allSprites.push_back({healingTower.x, healingTower.y, dist, 20, 2.0f, variant, false, 0.0f, false});
+             g_allSprites.push_back({healingTower.x, healingTower.y, dist, 20, 2.0f, variant, false, 0.0f, false});
         }
         
         // Particles
@@ -2753,22 +3617,26 @@ void RenderSprites() {
              float px = healingTower.x + cosf(p.angle) * p.dist;
              float py = healingTower.y + sinf(p.angle) * p.dist;
              
+             if (!IsInFrustum(px, py, player.x, player.y, player.angle, FOV * 0.7f)) continue;
              float pdx = px - player.x;
              float pdy = py - player.y;
-             float pdist = sqrtf(pdx*pdx + pdy*pdy);
-             if (pdist < 35.0f) {
-                 allSprites.push_back({px, py, pdist, 21, 0.5f, 0, false, p.height, false});
+             float pdistSq = pdx*pdx + pdy*pdy;
+             if (pdistSq < 1225.0f) {
+                 float pdist = sqrtf(pdistSq);
+                 g_allSprites.push_back({px, py, pdist, 21, 0.5f, 0, false, p.height, false});
              }
         }
     }
 
     
     for (auto& bush : bushes) {
+        if (!IsInFrustum(bush.x, bush.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
         float dx = bush.x - player.x;
         float dy = bush.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        if (dist < 30.0f) {
-            allSprites.push_back({bush.x, bush.y, dist, 13, 0.6f, 0, false, 0.0f, false});
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 900.0f) {
+            float dist = sqrtf(distSq);
+            g_allSprites.push_back({bush.x, bush.y, dist, 13, 0.6f, 0, false, 0.0f, false});
         }
     }
     
@@ -2778,11 +3646,11 @@ void RenderSprites() {
             float dy = enemy.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
             if (enemy.isMarshall) {
-                allSprites.push_back({enemy.x, enemy.y, dist, 9, 2.5f, (enemy.hurtTimer > 0 ? 1 : 0), false, 0.0f, false});
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 9, 2.5f, (enemy.hurtTimer > 0 ? 1 : 0), false, 0.0f, false});
             } else if (enemy.isShooter) {
-                allSprites.push_back({enemy.x, enemy.y, dist, 6, 1.0f, 0, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 6, 1.0f, 0, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
             } else {
-                allSprites.push_back({enemy.x, enemy.y, dist, 1, 1.0f, enemy.spriteIndex, (enemy.spriteIndex == 4 && enemy.hurtTimer > 0), 0.0f, false});
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 1, 1.0f, enemy.spriteIndex, (enemy.spriteIndex == 4 && enemy.hurtTimer > 0), 0.0f, false});
             }
         }
     }
@@ -2795,7 +3663,7 @@ void RenderSprites() {
             int bulletType = eb.isLaser ? 8 : 7;
             float scale = eb.isLaser ? 1.5f : 0.5f;
             float height = eb.isLaser ? 1.0f : 0.0f;
-            allSprites.push_back({eb.x, eb.y, dist, bulletType, scale, 0, false, height, false});
+            g_allSprites.push_back({eb.x, eb.y, dist, bulletType, scale, 0, false, height, false});
         }
     }
     
@@ -2804,7 +3672,7 @@ void RenderSprites() {
             float dx = p.x - player.x;
             float dy = p.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            allSprites.push_back({p.x, p.y, dist, 10, 1.0f, 0, (p.hurtTimer > 0), 0.0f, false});
+            g_allSprites.push_back({p.x, p.y, dist, 10, 1.0f, 0, (p.hurtTimer > 0), 0.0f, false});
         }
     }
     
@@ -2814,7 +3682,7 @@ void RenderSprites() {
             float dx = r.x - player.x;
             float dy = r.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            allSprites.push_back({r.x, r.y, dist, 14, 0.5f, 0, false, r.z, false});
+            g_allSprites.push_back({r.x, r.y, dist, 14, 0.5f, 0, false, r.z, false});
         }
     }
     
@@ -2823,7 +3691,7 @@ void RenderSprites() {
             float dx = t.x - player.x;
             float dy = t.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            allSprites.push_back({t.x, t.y, dist, 16, 0.5f, 0, false, 0.0f, false});
+            g_allSprites.push_back({t.x, t.y, dist, 16, 0.5f, 0, false, 0.0f, false});
         }
     }
     
@@ -2832,7 +3700,7 @@ void RenderSprites() {
             float dx = ex.x - player.x;
             float dy = ex.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            allSprites.push_back({ex.x, ex.y, dist, 15, 1.5f, 0, false, ex.timer, false});
+            g_allSprites.push_back({ex.x, ex.y, dist, 15, 1.5f, 0, false, ex.timer, false});
         }
     }
     
@@ -2892,7 +3760,7 @@ void RenderSprites() {
             clawHeight = 6.0f;
         }
         
-        allSprites.push_back({claws[i].x, claws[i].y, cdist, 5, 8.0f, clawVariant, isClawHurt, clawHeight, false});
+        g_allSprites.push_back({claws[i].x, claws[i].y, cdist, 5, 8.0f, clawVariant, isClawHurt, clawHeight, false});
     }
     
     if (postBossPhase) {
@@ -2903,7 +3771,7 @@ void RenderSprites() {
             float dist = sqrtf(dx*dx + dy*dy);
             if (dist < 50.0f && dist > 0.5f) {
                 int type = (npc.name == L"Leader") ? 17 : 18;
-                allSprites.push_back({npc.x, npc.y, dist, type, 1.0f, 0, npc.isTalking, 0.0f, false});
+                g_allSprites.push_back({npc.x, npc.y, dist, type, 1.0f, 0, npc.isTalking, 0.0f, false});
             }
         }
     }
@@ -2913,16 +3781,20 @@ void RenderSprites() {
         float pdy = savedPlayerY - player.y;
         float pdist = sqrtf(pdx*pdx + pdy*pdy);
         if (pdist < 50.0f && pdist > 0.5f) {
-             allSprites.push_back({savedPlayerX, savedPlayerY, pdist, 19, 1.0f, 0, false, 0.0f, false});
+             g_allSprites.push_back({savedPlayerX, savedPlayerY, pdist, 19, 1.0f, 0, false, 0.0f, false});
         }
     }
     
-    std::sort(allSprites.begin(), allSprites.end(), [](const SpriteRender& a, const SpriteRender& b) {
+    std::sort(g_allSprites.begin(), g_allSprites.end(), [](const SpriteRender& a, const SpriteRender& b) {
         return a.dist > b.dist;
     });
     
-    for (auto& sp : allSprites) {
-        if (sp.type == 0) {
+    for (size_t i = 0; i < g_allSprites.size(); ++i) {
+        auto& sp = g_allSprites[i];
+
+        if (sp.type == 99) {
+             if (gravePixels) RenderSprite(gravePixels, graveW, graveH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 0) {
             RenderSprite(treePixels, treeW, treeH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         } else if (sp.type == 1) {
             if (sp.isHurt) {
@@ -3059,11 +3931,14 @@ void RenderClouds() {
     if (!cloudPixels || cloudW <= 0 || cloudH <= 0) return;
     
     for (auto& cloud : clouds) {
+        if (!IsInFrustum(cloud.x, cloud.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
+        
         float dx = cloud.x - player.x;
         float dy = cloud.y - player.y;
-        float dist = sqrtf(dx*dx + dy*dy);
+        float distSq = dx*dx + dy*dy;
         
-        if (dist < 5.0f || dist > 100.0f) continue;
+        if (distSq < 25.0f || distSq > 10000.0f) continue;
+        float dist = sqrtf(distSq);
         
         float cloudAngle = atan2f(dy, dx) - player.angle;
         while (cloudAngle > PI) cloudAngle -= 2 * PI;
@@ -3086,6 +3961,10 @@ void RenderClouds() {
         int drawEndY = (int)(skyY + cloudSize * 0.5f);
         if (drawEndY > horizon) drawEndY = horizon;
         
+        float fade = 1.0f - (dist / 100.0f);
+        if (fade < 0.4f) fade = 0.4f;
+        int fadeFix = (int)(fade * 256);
+        
         for (int x = drawStartX; x < drawEndX; x++) {
             if (x < 0 || x >= SCREEN_WIDTH) continue;
             float texX = (float)(x - drawStartX) / (drawEndX - drawStartX);
@@ -3105,10 +3984,8 @@ void RenderClouds() {
                 int a = (col >> 24) & 0xFF;
                 if (a == 0) continue;
                 
-                float fade = 1.0f - (dist / 100.0f);
-                if (fade < 0.4f) fade = 0.4f;
-                backBufferPixels[y * SCREEN_WIDTH + x] = MakeColor(
-                    (int)(r * fade), (int)(g * fade), (int)(b * fade));
+                renderBuffer[y * SCREEN_WIDTH + x] = MakeColor(
+                    (r * fadeFix) >> 8, (g * fadeFix) >> 8, (b * fadeFix) >> 8);
             }
         }
     }
@@ -3876,6 +4753,8 @@ void UpdateEnemies(float deltaTime) {
                 PlayPlayerHurtSound();
                 if (player.health <= 0) {
                     score = 0;
+                    graves.push_back({player.x, player.y});
+                    SaveGraves();
                     player.health = 100;
                     player.x = 10.0f;
                     player.y = 32.0f;
@@ -3884,23 +4763,11 @@ void UpdateEnemies(float deltaTime) {
                     playerDamage = 1;
                     maxAmmo = 8;
                     ammo = 8;
-                    // Reset weapon ammo to defaults
-                    weaponAmmo[0] = 8; weaponAmmo[1] = 5; weaponAmmo[2] = 4;
-                    weaponMaxAmmo[0] = 8; weaponMaxAmmo[1] = 5; weaponMaxAmmo[2] = 4;
-                    
-                    if (bossActive) {
-                        bossActive = false;
-                        preBossPhase = false;
-                        bossHealth = 200;
-                        phase2Active = false;
-                        enragedMode = false;
-                        enemies.clear();
-                        fireballs.clear();
-                        InitClaws();
+                    if (player.health <= 0) {
+                        pendingGameReset = true;
+                        if (!godMode) player.health = 100; // Prevent further damage this frame
+                        break;
                     }
-                    marshallSpawned = false;
-                    militiaBarActive = false; // Reset Militia UI
-                    SpawnEnemies();
                 }
             }
         }
@@ -3943,29 +4810,13 @@ eb.active = false; break; }
             PlayPlayerHurtSound();
             eb.active = false;
             
-            if (player.health <= 0) {
-                score = 0;
-                player.health = 100;
-                player.x = 10.0f;
-                player.y = 32.0f;
-                
-                // Reset Boss & Game State
-                bossActive = false;
-                preBossPhase = false;
-                preBossTimer = 0;
-                preBossPulseTimer = 0;
-                bossHealth = 200;
-                phase2Active = false;
-                enragedMode = false;
-                enemies.clear();
-                fireballs.clear();
-                InitClaws();
-                marshallSpawned = false; // Reset Marshall
-                militiaBarActive = false; // Reset Militia UI
-                SpawnEnemies();
+                if (player.health <= 0) {
+                    pendingGameReset = true;
+                    if (!godMode) player.health = 100; // Prevent further damage this frame
+                    break;
+                }
             }
         }
-    }
     
     // Prevent spawning and clear enemies during pre-boss phase
     if (preBossPhase) {
@@ -4111,6 +4962,36 @@ eb.active = false; break; }
             lastActiveClaw = 5;
         }
 
+        if (!phase2Active) {
+             // Phase 1: Fireballs
+             fireballSpawnTimer -= deltaTime;
+             if (fireballSpawnTimer <= 0) {
+                 Fireball fb;
+                 float centerX = 32.0f;
+                 float centerY = 32.0f;
+                 float dx = player.x - centerX;
+                 float dy = player.y - centerY;
+                 float dist = sqrtf(dx*dx + dy*dy);
+                 
+                 float dirX = 1.0f, dirY = 0.0f;
+                 if(dist > 0) {
+                     dirX = dx/dist;
+                     dirY = dy/dist;
+                 }
+                 
+                 // Spawn outside the boss collision radius (2.0f)
+                 fb.x = centerX + dirX * 4.0f;
+                 fb.y = centerY + dirY * 4.0f;
+                 fb.dirX = dirX;
+                 fb.dirY = dirY;
+                 fb.speed = 8.0f;
+                 fb.active = true;
+                 fireballs.push_back(fb);
+                 
+                 fireballSpawnTimer = 1.5f;
+             }
+        }
+
         if (phase2Active) {
             // Phase 2 Logic
             phase2BossAnimTimer += deltaTime;
@@ -4185,7 +5066,6 @@ eb.active = false; break; }
                     }
                 }
             }
-            
             if (livingClaws == 0 && !enragedMode) {
                 enragedMode = true;
                 forceFieldActive = false;
@@ -4215,6 +5095,10 @@ eb.active = false; break; }
                     } else {
                         fb.dirX = 1; fb.dirY = 0;
                     }
+                    
+                    // Spawn at 4.0f radius
+                    fb.x = 32.0f + fb.dirX * 4.0f;
+                    fb.y = 32.0f + fb.dirY * 4.0f;
                     fb.speed = 8.0f;
                     fb.active = true;
                     fireballs.push_back(fb);
@@ -4263,7 +5147,7 @@ eb.active = false; break; }
                                     player.y = 32.0f;
                                     bossActive = false;
                                     preBossPhase = false;
-                                    bossHealth = 200;
+                                    bossHealth = 1500;
                                     enemies.clear();
                                     fireballs.clear();
                                     InitClaws();
@@ -4388,6 +5272,8 @@ eb.active = false; break; }
                             PlayPlayerHurtSound();
                             if(player.health <= 0) {
                                 score = 0;
+                                graves.push_back({player.x, player.y});
+                                SaveGraves();
                                 player.health = 100;
                                 player.x = 10.0f;
                                 player.y = 32.0f;
@@ -4470,6 +5356,8 @@ fb.active = false; break; }
             
             if (player.health <= 0) {
                 score = 0;
+                graves.push_back({player.x, player.y});
+                SaveGraves();
                 player.health = 100;
                 player.x = 10.0f;
                 player.y = 32.0f;
@@ -4482,7 +5370,7 @@ fb.active = false; break; }
                 if (bossActive) {
                     bossActive = false;
                     preBossPhase = false;
-                    bossHealth = 200;
+                    bossHealth = 1500;
                     phase2Active = false;
                     enragedMode = false;
                     enemies.clear();
@@ -5522,7 +6410,7 @@ void DrawCompass(HDC hdc) {
     int compassDrawW = compassW * compassScale;
     int compassDrawH = compassH * compassScale;
     int compassX = (SCREEN_WIDTH - compassDrawW) / 2;
-    int compassY = 25;
+    int compassY = 50;
     
     int centerDrawX = compassX + compassDrawW / 2;
     int centerDrawY = compassY + compassDrawH / 2;
@@ -5559,7 +6447,113 @@ void DrawCompass(HDC hdc) {
             if (r == 255 && g == 0 && b == 255) continue;
             if (r == 0 && g == 0 && b == 0) continue;
             
-            backBufferPixels[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
+            renderBuffer[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
+        }
+    }
+}
+
+void DrawMinimapToBuffer() {
+    if (!renderBuffer) return;
+    
+    int cellSize = 3;
+    int mapDrawWidth = MAP_WIDTH * cellSize;
+    int mapDrawHeight = MAP_HEIGHT * cellSize;
+    
+    int offsetX = SCREEN_WIDTH - mapDrawWidth - 60;
+    int offsetY = 30;
+    
+    DWORD bgColor = MakeColor(30, 30, 30);
+    for (int y = offsetY - 3; y < offsetY + mapDrawHeight + 3; y++) {
+        if (y < 0 || y >= SCREEN_HEIGHT) continue;
+        for (int x = offsetX - 3; x < offsetX + mapDrawWidth + 3; x++) {
+            if (x < 0 || x >= SCREEN_WIDTH) continue;
+            renderBuffer[y * SCREEN_WIDTH + x] = bgColor;
+        }
+    }
+    
+    DWORD wall1Color = MakeColor(100, 80, 60);
+    DWORD wall2Color = MakeColor(80, 100, 80);
+    DWORD wall3Color = MakeColor(60, 60, 100);
+    
+    for (int my = 0; my < MAP_HEIGHT; my++) {
+        for (int mx = 0; mx < MAP_WIDTH; mx++) {
+            if (worldMap[mx][my] > 0) {
+                DWORD col = wall3Color;
+                if (worldMap[mx][my] == 2) col = wall1Color;
+                else if (worldMap[mx][my] == 1) col = wall2Color;
+                
+                for (int py = 0; py < cellSize; py++) {
+                    int sy = offsetY + my * cellSize + py;
+                    if (sy < 0 || sy >= SCREEN_HEIGHT) continue;
+                    for (int px = 0; px < cellSize; px++) {
+                        int sx = offsetX + mx * cellSize + px;
+                        if (sx < 0 || sx >= SCREEN_WIDTH) continue;
+                        renderBuffer[sy * SCREEN_WIDTH + sx] = col;
+                    }
+                }
+            }
+        }
+    }
+    
+    int playerX = offsetX + (int)(player.x * cellSize);
+    int playerY = offsetY + (int)(player.y * cellSize);
+    DWORD playerColor = MakeColor(0, 255, 0);
+    for (int dy = -2; dy <= 2; dy++) {
+        for (int dx = -2; dx <= 2; dx++) {
+            int sx = playerX + dx;
+            int sy = playerY + dy;
+            if (sx >= 0 && sx < SCREEN_WIDTH && sy >= 0 && sy < SCREEN_HEIGHT) {
+                renderBuffer[sy * SCREEN_WIDTH + sx] = playerColor;
+            }
+        }
+    }
+    
+    DWORD enemyColor = MakeColor(255, 0, 0);
+    DWORD smartColor = MakeColor(200, 50, 200);
+    for (auto& enemy : enemies) {
+        if (enemy.active) {
+            int ex = offsetX + (int)(enemy.x * cellSize);
+            int ey = offsetY + (int)(enemy.y * cellSize);
+            DWORD col = (enemy.tacticState != 0) ? smartColor : enemyColor;
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    int sx = ex + dx;
+                    int sy = ey + dy;
+                    if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+                        renderBuffer[sy * SCREEN_WIDTH + sx] = col;
+                    }
+                }
+            }
+        }
+    }
+    
+    DWORD medkitColor = MakeColor(0, 200, 255);
+    for (int i = 0; i < 3; i++) {
+        if (medkits[i].active) {
+            int mx = offsetX + (int)(medkits[i].x * cellSize);
+            int my = offsetY + (int)(medkits[i].y * cellSize);
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    int sx = mx + dx;
+                    int sy = my + dy;
+                    if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+                        renderBuffer[sy * SCREEN_WIDTH + sx] = medkitColor;
+                    }
+                }
+            }
+        }
+    }
+    
+    DWORD spireColor = MakeColor(255, 165, 0);
+    int spireX = offsetX + 32 * cellSize;
+    int spireY = offsetY + 32 * cellSize;
+    for (int dy = -4; dy <= 4; dy++) {
+        for (int dx = -4; dx <= 4; dx++) {
+            int sx = spireX + dx;
+            int sy = spireY + dy;
+            if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+                renderBuffer[sy * SCREEN_WIDTH + sx] = spireColor;
+            }
         }
     }
 }
@@ -5573,8 +6567,8 @@ void DrawMinimap(HDC hdc) {
     int mapDrawWidth = MAP_WIDTH * cellSize;
     int mapDrawHeight = MAP_HEIGHT * cellSize;
     
-    int offsetX = SCREEN_WIDTH - mapDrawWidth - 10;
-    int offsetY = 10;
+    int offsetX = SCREEN_WIDTH - mapDrawWidth - 60;
+    int offsetY = 30;
     
     RECT bgRect = {offsetX - 3, offsetY - 3, offsetX + mapDrawWidth + 3, offsetY + mapDrawHeight + 3};
     FillRect(hdc, &bgRect, hBrushMapBG);
@@ -5702,6 +6696,35 @@ void DrawMinimap(HDC hdc) {
         SelectObject(hdc, hOldFont);
     }
     
+    // Deserialize global reset
+    if (pendingGameReset) {
+        pendingGameReset = false;
+        score = 0;
+        player.health = 100;
+        player.x = 10.0f;
+        player.y = 32.0f;
+        
+        // Reset weapon ammo to defaults
+        weaponAmmo[0] = 8; weaponAmmo[1] = 5; weaponAmmo[2] = 4;
+        weaponMaxAmmo[0] = 8; weaponMaxAmmo[1] = 5; weaponMaxAmmo[2] = 4;
+        
+        // Reset Boss & Game State
+        bossActive = false;
+        preBossPhase = false;
+        preBossTimer = 0;
+        preBossPulseTimer = 0;
+        bossHealth = 1500;
+        phase2Active = false;
+        enragedMode = false;
+        enemies.clear();
+        fireballs.clear();
+        enemyBullets.clear();
+        InitClaws();
+        marshallSpawned = false; 
+        militiaBarActive = false;
+        SpawnEnemies();
+    }
+
     // Restore original objects
     SelectObject(hdc, origPen);
     SelectObject(hdc, origBrush);
@@ -5720,7 +6743,8 @@ void UpdatePlayer(float deltaTime) {
         return;
     }
     
-    if (!spectatorMode) {
+    // Process input (movement, rotation)
+    if (g_EnableMouseLook && !spectatorMode) {
         if (keys['W'] || keys[VK_UP]) {
             float newX = player.x + cosf(player.angle) * moveSpeed;
             float newY = player.y + sinf(player.angle) * moveSpeed;
@@ -5944,6 +6968,49 @@ void UpdatePlayer(float deltaTime) {
             }
         }
     }
+    
+    playerNearGate = false;
+    int px = (int)player.x;
+    int py = (int)player.y;
+    for (int dx = -2; dx <= 2; dx++) {
+        for (int dy = -2; dy <= 2; dy++) {
+            int cx = px + dx;
+            int cy = py + dy;
+            if (cx >= 0 && cx < MAP_WIDTH && cy >= 0 && cy < MAP_HEIGHT) {
+                if (worldMap[cx][cy] == 4) {
+                    float dist = sqrtf((float)(dx*dx + dy*dy));
+                    if (dist < 2.0f) {
+                        playerNearGate = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (playerNearGate) break;
+    }
+    
+    static bool ePressed = false;
+    if (playerNearGate && keys['E'] && !gateDialogueActive && !dialogueController.IsActive()) {
+        if (!ePressed) {
+            ePressed = true;
+            wchar_t exePath[MAX_PATH];
+            GetModuleFileNameW(NULL, exePath, MAX_PATH);
+            wchar_t* lastBackSlash = wcsrchr(exePath, L'\\');
+            wchar_t* lastForwardSlash = wcsrchr(exePath, L'/');
+            wchar_t* lastSlash = lastBackSlash;
+            if (lastForwardSlash && (!lastSlash || lastForwardSlash > lastSlash)) lastSlash = lastForwardSlash;
+            if (lastSlash) *lastSlash = L'\0';
+            
+            wchar_t dialoguePath[MAX_PATH];
+            swprintf(dialoguePath, MAX_PATH, L"%ls\\assets\\dialogues\\player.line", exePath);
+            if (playerDialogueController.LoadFromLine(dialoguePath)) {
+                playerDialogueController.Start();
+                gateDialogueActive = true;
+            }
+        }
+    } else if (!keys['E']) {
+        ePressed = false;
+    }
 }
 
 void RenderGun() {
@@ -5995,7 +7062,7 @@ void RenderGun() {
             int b = (col >> 0) & 0xFF;
             int g = (col >> 8) & 0xFF;
             int r = (col >> 16) & 0xFF;
-            backBufferPixels[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
+            renderBuffer[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
         }
     }
 }
@@ -6010,18 +7077,18 @@ void RenderGame(HDC hdc) {
     if (playerHurtTimer > 0) {
         float intensity = playerHurtTimer / 0.3f;
         if (intensity > 1.0f) intensity = 1.0f;
-        ApplyHurtFlash_Fast(backBufferPixels, SCREEN_WIDTH * SCREEN_HEIGHT, intensity);
+        ApplyHurtFlash_Fast(renderBuffer, SCREEN_WIDTH * SCREEN_HEIGHT, intensity);
     }
     
     int hbIndex = player.health / 10;
     if (hbIndex > 10) hbIndex = 10;
     if (hbIndex < 0) hbIndex = 0;
     if (healthbarPixels[hbIndex] && healthbarW > 0 && healthbarH > 0) {
-        int hbScale = 5;
+        int hbScale = 8;
         int hbDrawW = healthbarW * hbScale;
         int hbDrawH = healthbarH * hbScale;
-        int hbX = 10;
-        int hbY = 70;
+        int hbX = 70; 
+        int hbY = SCREEN_HEIGHT - 160; 
         
         for (int y = 0; y < hbDrawH; y++) {
             int screenY = hbY + y;
@@ -6035,17 +7102,109 @@ void RenderGame(HDC hdc) {
                 
                 DWORD col = healthbarPixels[hbIndex][srcY * healthbarW + srcX];
                 int a = (col >> 24) & 0xFF;
+
                 if (a == 0) continue;
                 
                 int b = (col >> 0) & 0xFF;
                 int g = (col >> 8) & 0xFF;
                 int r = (col >> 16) & 0xFF;
-                backBufferPixels[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
+                renderBuffer[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
             }
         }
     }
     
     DrawCompass(hdc);
+    
+    memcpy(backBufferPixels, renderBuffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(DWORD));
+    DrawMinimap(backBufferDC);
+    
+    // Draw Dialogue into the scene (distorted by VCR) -> Using backBufferDC
+    if (dialogueController.IsActive()) {
+        std::wstring name = dialogueController.GetSpeakerName();
+        std::wstring text = dialogueController.GetCurrentText();
+        bool showOpts = dialogueController.IsShowingOptions();
+        std::vector<std::wstring> opts = dialogueController.GetCurrentOptions();
+        int selectedOpt = dialogueController.GetSelectedOptionIndex();
+        DialogueSystem::RenderDialogueBox(backBufferDC, SCREEN_WIDTH, SCREEN_HEIGHT, name, text, showOpts, opts, selectedOpt, 
+            dialogueController.GetNameColor(), dialogueController.GetDialogueColor());
+    }
+    
+    if (playerNearGate && !gateDialogueActive && !dialogueController.IsActive()) {
+        SetBkMode(backBufferDC, TRANSPARENT);
+        HFONT promptFont = CreateFontW(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 
+            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
+        HFONT oldFont = (HFONT)SelectObject(backBufferDC, promptFont);
+        SetTextColor(backBufferDC, RGB(255, 255, 100));
+        const wchar_t* promptText = L"[E] Open Gate";
+        SIZE sz;
+        GetTextExtentPoint32W(backBufferDC, promptText, (int)wcslen(promptText), &sz);
+        int promptX = (SCREEN_WIDTH - sz.cx) / 2;
+        int promptY = SCREEN_HEIGHT / 2 + 50;
+        TextOutW(backBufferDC, promptX, promptY, promptText, (int)wcslen(promptText));
+        SelectObject(backBufferDC, oldFont);
+        DeleteObject(promptFont);
+    }
+    
+    if (gateDialogueActive && playerDialogueController.IsActive()) {
+        std::wstring name = playerDialogueController.GetSpeakerName();
+        std::wstring text = playerDialogueController.GetCurrentText();
+        bool showOpts = playerDialogueController.IsShowingOptions();
+        std::vector<std::wstring> opts = playerDialogueController.GetCurrentOptions();
+        int selectedOpt = playerDialogueController.GetSelectedOptionIndex();
+        DialogueSystem::RenderDialogueBox(backBufferDC, SCREEN_WIDTH, SCREEN_HEIGHT, name, text, showOpts, opts, selectedOpt,
+            playerDialogueController.GetNameColor(), playerDialogueController.GetDialogueColor());
+    }
+    
+    if (gateDialogueActive && !playerDialogueController.IsActive()) {
+        gateDialogueActive = false;
+    }
+
+    if (scoreTimer > 0) {
+        HFONT hOldFont = (HFONT)SelectObject(backBufferDC, hFontPixel);
+        SetBkMode(backBufferDC, TRANSPARENT);
+        
+        wchar_t pointText[] = L"+1";
+        SIZE size;
+        GetTextExtentPoint32W(backBufferDC, pointText, 2, &size);
+        int px = (SCREEN_WIDTH - size.cx) / 2;
+        int py = (SCREEN_HEIGHT - size.cy) / 2 - 40;
+        
+        // Outline Pass
+        SetTextColor(backBufferDC, RGB(0, 0, 0));
+        for (int oy = -2; oy <= 2; oy+=2) {
+            for (int ox = -2; ox <= 2; ox+=2) {
+                 if (ox == 0 && oy == 0) continue;
+                 TextOutW(backBufferDC, px + ox, py + oy, pointText, 2);
+            }
+        }
+        
+        // Main Pass
+        SetTextColor(backBufferDC, RGB(255, 255, 255));
+        TextOutW(backBufferDC, px, py, pointText, 2);
+
+        GetTextExtentPoint32W(backBufferDC, scoreMsg, (int)wcslen(scoreMsg), &size);
+        int sx = (SCREEN_WIDTH - size.cx) / 2;
+        int sy = (SCREEN_HEIGHT - size.cy) / 2 + 30; // Shifted down slightly to accommodate running larger font
+        
+        // Outline Pass
+        SetTextColor(backBufferDC, RGB(0, 0, 0));
+        for (int oy = -2; oy <= 2; oy+=2) {
+            for (int ox = -2; ox <= 2; ox+=2) {
+                 if (ox == 0 && oy == 0) continue;
+                 TextOutW(backBufferDC, sx + ox, sy + oy, scoreMsg, (int)wcslen(scoreMsg));
+            }
+        }
+        
+        // Main Pass
+        SetTextColor(backBufferDC, RGB(255, 255, 255));
+        TextOutW(backBufferDC, sx, sy, scoreMsg, (int)wcslen(scoreMsg));
+        
+        SelectObject(backBufferDC, hOldFont);
+    }
+
+    memcpy(renderBuffer, backBufferPixels, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(DWORD));
+    
+    ApplyPostProcess();
     
     int shakeX = 0, shakeY = 0;
     if (screenShakeTimer > 0) {
@@ -6054,11 +7213,7 @@ void RenderGame(HDC hdc) {
         shakeY = (int)((rand() % (int)(screenShakeIntensity * 2 + 1) - screenShakeIntensity) * shakeFactor);
     }
     
-    HDC memDC = CreateCompatibleDC(hdc);
-    HBITMAP memBitmap = CreateCompatibleBitmap(hdc, SCREEN_WIDTH, SCREEN_HEIGHT);
-    HBITMAP oldBitmap = (HBITMAP)SelectObject(memDC, memBitmap);
-    
-    BitBlt(memDC, shakeX, shakeY, SCREEN_WIDTH, SCREEN_HEIGHT, backBufferDC, 0, 0, SRCCOPY);
+    BitBlt(g_renderDC, shakeX, shakeY, SCREEN_WIDTH, SCREEN_HEIGHT, backBufferDC, 0, 0, SRCCOPY);
     
     // Phase 2 Visuals (Force Field + Lasers)
     if (phase2Active) {
@@ -6080,11 +7235,11 @@ void RenderGame(HDC hdc) {
                  // Center Y calculation matching RenderSprite
                  int centerY = (SCREEN_HEIGHT / 2 + (int)((SCREEN_HEIGHT / 2.0f) / dist) + (int)player.pitch) - (int)(spriteHeight / 2.0f);
 
-                 HPEN oldPen = (HPEN)SelectObject(memDC, hPenRed); 
-                 HBRUSH oldBrush = (HBRUSH)SelectObject(memDC, hBrushHollow);
-                 Ellipse(memDC, (int)(screenX - radius), centerY - radius, (int)(screenX + radius), centerY + radius);
-                 SelectObject(memDC, oldPen);
-                 SelectObject(memDC, oldBrush);
+                 HPEN oldPen = (HPEN)SelectObject(g_renderDC, hPenRed); 
+                 HBRUSH oldBrush = (HBRUSH)SelectObject(g_renderDC, hBrushHollow);
+                 Ellipse(g_renderDC, (int)(screenX - radius), centerY - radius, (int)(screenX + radius), centerY + radius);
+                 SelectObject(g_renderDC, oldPen);
+                 SelectObject(g_renderDC, oldBrush);
              }
         }
         
@@ -6104,10 +7259,10 @@ void RenderGame(HDC hdc) {
                  
                  int centerY = (SCREEN_HEIGHT / 2 + (int)((SCREEN_HEIGHT / 2.0f) / dist) + (int)player.pitch) - (int)(spriteHeight / 2.0f);
                  
-                 HPEN oldPen = (HPEN)SelectObject(memDC, hPenLaser);
-                 MoveToEx(memDC, (int)screenX, centerY, NULL);
-                 LineTo(memDC, SCREEN_WIDTH / 2, SCREEN_HEIGHT); // To weapon
-                 SelectObject(memDC, oldPen);
+                 HPEN oldPen = (HPEN)SelectObject(g_renderDC, hPenLaser);
+                 MoveToEx(g_renderDC, (int)screenX, centerY, NULL);
+                 LineTo(g_renderDC, SCREEN_WIDTH / 2, SCREEN_HEIGHT); // To weapon
+                 SelectObject(g_renderDC, oldPen);
              }
         }
     }
@@ -6116,151 +7271,136 @@ void RenderGame(HDC hdc) {
     int cy = SCREEN_HEIGHT / 2;
     int reticleSize = 12;
     int reticleGap = 4;
-    HPEN oldPen = (HPEN)SelectObject(memDC, hPenWhite);
-    MoveToEx(memDC, cx - reticleSize, cy, NULL);
-    LineTo(memDC, cx - reticleGap, cy);
-    MoveToEx(memDC, cx + reticleGap, cy, NULL);
-    LineTo(memDC, cx + reticleSize, cy);
-    MoveToEx(memDC, cx, cy - reticleSize, NULL);
-    LineTo(memDC, cx, cy - reticleGap);
-    MoveToEx(memDC, cx, cy + reticleGap, NULL);
-    LineTo(memDC, cx, cy + reticleSize);
-    SelectObject(memDC, oldPen);
+    HPEN oldPen = (HPEN)SelectObject(g_renderDC, hPenWhite);
+    MoveToEx(g_renderDC, cx - reticleSize, cy, NULL);
+    LineTo(g_renderDC, cx - reticleGap, cy);
+    MoveToEx(g_renderDC, cx + reticleGap, cy, NULL);
+    LineTo(g_renderDC, cx + reticleSize, cy);
+    MoveToEx(g_renderDC, cx, cy - reticleSize, NULL);
+    LineTo(g_renderDC, cx, cy - reticleGap);
+    MoveToEx(g_renderDC, cx, cy + reticleGap, NULL);
+    LineTo(g_renderDC, cx, cy + reticleSize);
+    SelectObject(g_renderDC, oldPen);
     
-    DrawMinimap(memDC);
-    SetBkMode(memDC, TRANSPARENT);
-    SetTextColor(memDC, RGB(255, 255, 0));
-    TextOutW(memDC, 10, 10, loadStatus, (int)wcslen(loadStatus));
+    
+    SetBkMode(g_renderDC, TRANSPARENT);
+    SetTextColor(g_renderDC, RGB(255, 255, 0));
+    TextOutW(g_renderDC, 60, 30, loadStatus, (int)wcslen(loadStatus));
     
     if (!missingAssets.empty()) {
-        SetTextColor(memDC, RGB(255, 80, 80));
-        int yPos = 30;
-        TextOutA(memDC, 10, yPos, "MISSING ASSETS:", 15);
+        SetTextColor(g_renderDC, RGB(255, 80, 80));
+        int yPos = 50;
+        TextOutA(g_renderDC, 60, yPos, "MISSING ASSETS:", 15);
         yPos += 15;
         for (size_t i = 0; i < missingAssets.size() && i < 10; i++) {
-            TextOutW(memDC, 20, yPos, missingAssets[i].c_str(), (int)missingAssets[i].length());
+            TextOutW(g_renderDC, 70, yPos, missingAssets[i].c_str(), (int)missingAssets[i].length());
             yPos += 15;
         }
         if (missingAssets.size() > 10) {
             wchar_t moreText[64];
             swprintf(moreText, 64, L"... and %zu more", missingAssets.size() - 10);
-            TextOutW(memDC, 20, yPos, moreText, (int)wcslen(moreText));
+            TextOutW(g_renderDC, 70, yPos, moreText, (int)wcslen(moreText));
         }
     }
     
     wchar_t ammoText[64];
     if (isReloading) {
         swprintf(ammoText, 64, L"RELOADING...");
-        SetTextColor(memDC, RGB(255, 255, 0));
+        SetTextColor(g_renderDC, RGB(255, 255, 0));
     } else {
         swprintf(ammoText, 64, L"Ammo: %d/%d", ammo, maxAmmo);
-        SetTextColor(memDC, ammo == 0 ? RGB(255, 0, 0) : RGB(255, 255, 255));
+        SetTextColor(g_renderDC, ammo == 0 ? RGB(255, 0, 0) : RGB(255, 255, 255));
     }
-    TextOutW(memDC, 10, 50, ammoText, (int)wcslen(ammoText));
+    TextOutW(g_renderDC, 60, 70, ammoText, (int)wcslen(ammoText));
     
     wchar_t scoreText[128];
     swprintf(scoreText, 128, L"Score: %d  High Score: %d", score, highScore);
-    SetTextColor(memDC, RGB(255, 255, 255));
-    TextOutW(memDC, 10, 90, scoreText, (int)wcslen(scoreText));
+    SetTextColor(g_renderDC, RGB(255, 255, 255));
+    TextOutW(g_renderDC, 60, 110, scoreText, (int)wcslen(scoreText));
     
     if (paragonsUnlocked && paragonSummonCooldown > 0) {
         wchar_t cdText[64];
         swprintf(cdText, 64, L"Summon: %.1fs", paragonSummonCooldown);
-        SetTextColor(memDC, RGB(147, 112, 219));
-        TextOutW(memDC, 10, 130, cdText, (int)wcslen(cdText));
+        SetTextColor(g_renderDC, RGB(147, 112, 219));
+        TextOutW(g_renderDC, 60, 150, cdText, (int)wcslen(cdText));
         
         int barW = 100;
         int barH = 8;
-        int barX = 10;
-        int barY = 155;
+        int barX = 60;
+        int barY = 175;
         RECT bgRect = {barX, barY, barX + barW, barY + barH};
-        FillRect(memDC, &bgRect, hBrushDarkGray);
+        FillRect(g_renderDC, &bgRect, hBrushDarkGray);
         
         float pct = paragonSummonCooldown / 3.0f;
         if (pct > 1.0f) pct = 1.0f;
         int fillW = (int)(barW * (1.0f - pct));
         RECT fillRect = {barX, barY, barX + fillW, barY + barH};
-        FillRect(memDC, &fillRect, hBrushMagenta);
+        FillRect(g_renderDC, &fillRect, hBrushMagenta);
     }
     
-    if (scoreTimer > 0) {
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hFontTitle);
-        
-        SetTextColor(memDC, RGB(255, 215, 0));
-        SetBkMode(memDC, TRANSPARENT);
-        
-        wchar_t pointText[] = L"+1";
-        SIZE size;
-        GetTextExtentPoint32W(memDC, pointText, 2, &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, (SCREEN_HEIGHT - size.cy) / 2 - 40, pointText, 2);
-        
-        GetTextExtentPoint32W(memDC, scoreMsg, (int)wcslen(scoreMsg), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, (SCREEN_HEIGHT - size.cy) / 2 + 10, scoreMsg, (int)wcslen(scoreMsg));
-        
-        SelectObject(memDC, hOldFont);
-    }
+
     
     if (hordeMessageTimer > 0) {
-        HFONT hOldHFont = (HFONT)SelectObject(memDC, hFontMedium);
+        HFONT hOldHFont = (HFONT)SelectObject(g_renderDC, hFontMedium);
         
-        SetTextColor(memDC, RGB(255, 0, 0));
-        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(255, 0, 0));
+        SetBkMode(g_renderDC, TRANSPARENT);
         
         const wchar_t* hordeMsg = L"The Towns Folk has rallied!";
         SIZE hsz;
-        GetTextExtentPoint32W(memDC, hordeMsg, (int)wcslen(hordeMsg), &hsz);
-        TextOutW(memDC, (SCREEN_WIDTH - hsz.cx) / 2, SCREEN_HEIGHT / 4, hordeMsg, (int)wcslen(hordeMsg));
+        GetTextExtentPoint32W(g_renderDC, hordeMsg, (int)wcslen(hordeMsg), &hsz);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - hsz.cx) / 2, SCREEN_HEIGHT / 4, hordeMsg, (int)wcslen(hordeMsg));
         
-        SelectObject(memDC, hOldHFont);
+        SelectObject(g_renderDC, hOldHFont);
     }
     
     if (paragonMessageTimer > 0) {
-        HFONT hOldPFont = (HFONT)SelectObject(memDC, hFontMedium);
+        HFONT hOldPFont = (HFONT)SelectObject(g_renderDC, hFontMedium);
         
         int alpha = (int)((paragonMessageTimer / 3.0f) * 255.0f);
         if (alpha > 255) alpha = 255;
         if (alpha < 0) alpha = 0;
-        SetTextColor(memDC, RGB(147, 112, 219));
-        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(147, 112, 219));
+        SetBkMode(g_renderDC, TRANSPARENT);
         
         const wchar_t* msg = L"The Brotherhood has deemed you worthy";
         SIZE sz;
-        GetTextExtentPoint32W(memDC, msg, (int)wcslen(msg), &sz);
-        TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 3, msg, (int)wcslen(msg));
+        GetTextExtentPoint32W(g_renderDC, msg, (int)wcslen(msg), &sz);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 3, msg, (int)wcslen(msg));
         
-        SelectObject(memDC, hOldPFont);
+        SelectObject(g_renderDC, hOldPFont);
     }
     
     if (upgradeMessageTimer > 0) {
-        HFONT hOldUFont = (HFONT)SelectObject(memDC, hFontMedium);
+        HFONT hOldUFont = (HFONT)SelectObject(g_renderDC, hFontMedium);
         
-        SetTextColor(memDC, RGB(255, 215, 0));
-        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(255, 215, 0));
+        SetBkMode(g_renderDC, TRANSPARENT);
         
         const wchar_t* upMsg = L"Gun Upgraded! Damage: 5, Ammo +2";
         SIZE usz;
-        GetTextExtentPoint32W(memDC, upMsg, (int)wcslen(upMsg), &usz);
-        TextOutW(memDC, (SCREEN_WIDTH - usz.cx) / 2, SCREEN_HEIGHT / 5, upMsg, (int)wcslen(upMsg));
+        GetTextExtentPoint32W(g_renderDC, upMsg, (int)wcslen(upMsg), &usz);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - usz.cx) / 2, SCREEN_HEIGHT / 5, upMsg, (int)wcslen(upMsg));
         
         const wchar_t* upMsg2 = L"Press 1 or 2 to switch weapons";
         SIZE usz2;
-        GetTextExtentPoint32W(memDC, upMsg2, (int)wcslen(upMsg2), &usz2);
-        TextOutW(memDC, (SCREEN_WIDTH - usz2.cx) / 2, SCREEN_HEIGHT / 5 + 40, upMsg2, (int)wcslen(upMsg2));
+        GetTextExtentPoint32W(g_renderDC, upMsg2, (int)wcslen(upMsg2), &usz2);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - usz2.cx) / 2, SCREEN_HEIGHT / 5 + 40, upMsg2, (int)wcslen(upMsg2));
         
-        SelectObject(memDC, hOldUFont);
+        SelectObject(g_renderDC, hOldUFont);
     }
     
     // Boss Health Bar
    
     if (militiaMessageTimer > 0) {
-        HFONT hOldMFont = (HFONT)SelectObject(memDC, hFontMedium);
-        SetTextColor(memDC, RGB(255, 0, 0));
-        SetBkMode(memDC, TRANSPARENT);
+        HFONT hOldMFont = (HFONT)SelectObject(g_renderDC, hFontMedium);
+        SetTextColor(g_renderDC, RGB(255, 0, 0));
+        SetBkMode(g_renderDC, TRANSPARENT);
         const wchar_t* msg = L"A militia is forming...";
         SIZE sz;
-        GetTextExtentPoint32W(memDC, msg, (int)wcslen(msg), &sz);
-        TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 4 + 40, msg, (int)wcslen(msg));
-        SelectObject(memDC, hOldMFont);
+        GetTextExtentPoint32W(g_renderDC, msg, (int)wcslen(msg), &sz);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 4 + 40, msg, (int)wcslen(msg));
+        SelectObject(g_renderDC, hOldMFont);
         militiaMessageTimer -= 0.016f; // Approx frame time dec
     }
 
@@ -6272,7 +7412,7 @@ void RenderGame(HDC hdc) {
         int barY = 40;
         
         RECT bgRect = {barX, barY, barX + barW, barY + barH};
-        FillRect(memDC, &bgRect, hBrushDarkRed);
+        FillRect(g_renderDC, &bgRect, hBrushDarkRed);
         
         int hp = bossHealth;
         int max = 1500; 
@@ -6281,15 +7421,15 @@ void RenderGame(HDC hdc) {
         if (hpW > barW) hpW = barW;
         
         RECT hpRect = {barX, barY, barX + hpW, barY + barH};
-        FillRect(memDC, &hpRect, hBrushRed);
+        FillRect(g_renderDC, &hpRect, hBrushRed);
         
-        HFONT hOldSpireFont = (HFONT)SelectObject(memDC, hFontMedium);
+        HFONT hOldSpireFont = (HFONT)SelectObject(g_renderDC, hFontMedium);
         const wchar_t* name = L"THE SPIRE";
         SIZE sz;
-        GetTextExtentPoint32W(memDC, name, (int)wcslen(name), &sz);
-        SetTextColor(memDC, RGB(255, 255, 255));
-        TextOutW(memDC, barX + (barW - sz.cx) / 2, barY - sz.cy - 5, name, (int)wcslen(name));
-        SelectObject(memDC, hOldSpireFont);
+        GetTextExtentPoint32W(g_renderDC, name, (int)wcslen(name), &sz);
+        SetTextColor(g_renderDC, RGB(255, 255, 255));
+        TextOutW(g_renderDC, barX + (barW - sz.cx) / 2, barY - sz.cy - 5, name, (int)wcslen(name));
+        SelectObject(g_renderDC, hOldSpireFont);
     }
 
     // Militia Bar - Placed below the Marshall bar, shows count
@@ -6300,19 +7440,19 @@ void RenderGame(HDC hdc) {
          int barY = 85; 
          
          RECT mBgRect = {barX - 2, barY - 2, barX + barW + 2, barY + barH + 2}; 
-         FillRect(memDC, &mBgRect, hBrushDarkGray);
+         FillRect(g_renderDC, &mBgRect, hBrushDarkGray);
          
          int maxRef = (militiaMaxCount < 1) ? 1 : militiaMaxCount;
          int mW = (int)((float)militiaCount / (float)maxRef * barW);
          if (mW > barW) mW = barW;
          if (mW < 0) mW = 0;
          RECT mHpRect = {barX, barY, barX + mW, barY + barH};
-         FillRect(memDC, &mHpRect, hBrushGold);
+         FillRect(g_renderDC, &mHpRect, hBrushGold);
          
          wchar_t mText[64];
          swprintf(mText, 64, L"THE MILITIA  %d / %d", militiaCount, militiaMaxCount);
-         SetTextColor(memDC, RGB(255, 255, 255));
-         TextOutW(memDC, barX, barY - 15, mText, (int)wcslen(mText));
+         SetTextColor(g_renderDC, RGB(255, 255, 255));
+         TextOutW(g_renderDC, barX, barY - 15, mText, (int)wcslen(mText));
     }
     
     // Claw Health Bars (Phase 2 only)
@@ -6326,7 +7466,7 @@ void RenderGame(HDC hdc) {
             int barX = startX + i * (clawBarW + 10);
             
             RECT bgRect = {barX, clawBarY, barX + clawBarW, clawBarY + clawBarH};
-            FillRect(memDC, &bgRect, hBrushDarkGray);
+            FillRect(g_renderDC, &bgRect, hBrushDarkGray);
             
             if (claws[i].state != CLAW_PH2_DEAD) {
                 int hp = claws[i].health;
@@ -6335,15 +7475,15 @@ void RenderGame(HDC hdc) {
                 int hpW = (int)((float)hp / 250.0f * clawBarW);
                 
                 RECT hpRect = {barX, clawBarY, barX + hpW, clawBarY + clawBarH};
-                FillRect(memDC, &hpRect, hBrushMagenta);
+                FillRect(g_renderDC, &hpRect, hBrushMagenta);
             }
             
             wchar_t clawLabel[16];
             swprintf(clawLabel, 16, L"C%d", i + 1);
-            SetTextColor(memDC, claws[i].state == CLAW_PH2_DEAD ? RGB(100, 100, 100) : RGB(255, 255, 255));
-            TextOutA(memDC, barX + clawBarW / 2 - 8, clawBarY - 12, (claws[i].state == CLAW_PH2_DEAD ? "X" : ""), 1);
-            SetTextColor(memDC, RGB(255, 255, 255));
-            TextOutW(memDC, barX, clawBarY + clawBarH + 2, clawLabel, (int)wcslen(clawLabel));
+            SetTextColor(g_renderDC, claws[i].state == CLAW_PH2_DEAD ? RGB(100, 100, 100) : RGB(255, 255, 255));
+            TextOutA(g_renderDC, barX + clawBarW / 2 - 8, clawBarY - 12, (claws[i].state == CLAW_PH2_DEAD ? "X" : ""), 1);
+            SetTextColor(g_renderDC, RGB(255, 255, 255));
+            TextOutW(g_renderDC, barX, clawBarY + clawBarH + 2, clawLabel, (int)wcslen(clawLabel));
         }
     }
     
@@ -6352,62 +7492,54 @@ void RenderGame(HDC hdc) {
         wchar_t bossTimerMsg[64];
         swprintf(bossTimerMsg, 64, L"BOSS IN: %.0f", preBossTimer);
         
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hFontTitle);
+        HFONT hOldFont = (HFONT)SelectObject(g_renderDC, hFontTitle);
         
-        SetTextColor(memDC, RGB(255, 0, 0));
-        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(255, 0, 0));
+        SetBkMode(g_renderDC, TRANSPARENT);
         
         SIZE size;
-        GetTextExtentPoint32W(memDC, bossTimerMsg, (int)wcslen(bossTimerMsg), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, SCREEN_HEIGHT / 2 - 50, bossTimerMsg, (int)wcslen(bossTimerMsg));
+        GetTextExtentPoint32W(g_renderDC, bossTimerMsg, (int)wcslen(bossTimerMsg), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, SCREEN_HEIGHT / 2 - 50, bossTimerMsg, (int)wcslen(bossTimerMsg));
         
-        SelectObject(memDC, hOldFont);
+        SelectObject(g_renderDC, hOldFont);
     }
 
     // Pre-Boss Phase: Shaking "God has awoken" text
     if (bossActive && bossEventTimer > 0) {
-        HFONT hOldFont = (HFONT)SelectObject(memDC, hFontBig);
-        SetTextColor(memDC, RGB(255, 0, 0));
-        SetBkMode(memDC, TRANSPARENT);
+        HFONT hOldFont = (HFONT)SelectObject(g_renderDC, hFontBig);
+        SetTextColor(g_renderDC, RGB(255, 0, 0));
+        SetBkMode(g_renderDC, TRANSPARENT);
         
         int shakeX = (rand() % 10) - 5;
         int shakeY = (rand() % 10) - 5;
         
-        TextOutW(memDC, SCREEN_WIDTH/2 - 200 + shakeX, SCREEN_HEIGHT/2 - 100 + shakeY, L"God has awoken", 14);
-        SelectObject(memDC, hOldFont);
+        TextOutW(g_renderDC, SCREEN_WIDTH/2 - 200 + shakeX, SCREEN_HEIGHT/2 - 100 + shakeY, L"God has awoken", 14);
+        SelectObject(g_renderDC, hOldFont);
         
-        SetTextColor(memDC, RGB(255, 255, 255));
+        SetTextColor(g_renderDC, RGB(255, 255, 255));
     }
 
     
-    SetTextColor(memDC, RGB(255, 255, 255));
+    SetTextColor(g_renderDC, RGB(255, 255, 255));
     wchar_t info[128];
     swprintf(info, 128, L"WASD=Move | Mouse=Look | LClick=Shoot | R=Reload | ESC=Quit");
-    TextOutW(memDC, 10, SCREEN_HEIGHT - 25, info, (int)wcslen(info));
+    TextOutW(g_renderDC, 10, SCREEN_HEIGHT - 25, info, (int)wcslen(info));
     
     if (postBossPhase && !dialogueController.IsActive()) {
         NPCSystem::NPC* nearNPC = NPCSystem::GetNearestInteractableNPC(player.x, player.y, 3.0f);
         if (nearNPC && !nearNPC->dialoguePath.empty()) {
-            HFONT hOldPromptFont = (HFONT)SelectObject(memDC, hFontHUD);
-            SetTextColor(memDC, RGB(255, 255, 0));
-            SetBkMode(memDC, TRANSPARENT);
+            HFONT hOldPromptFont = (HFONT)SelectObject(g_renderDC, hFontHUD);
+            SetTextColor(g_renderDC, RGB(255, 255, 0));
+            SetBkMode(g_renderDC, TRANSPARENT);
             const wchar_t* prompt = L"Press E to interact";
             SIZE sz;
-            GetTextExtentPoint32W(memDC, prompt, (int)wcslen(prompt), &sz);
-            TextOutW(memDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 2 + 100, prompt, (int)wcslen(prompt));
-            SelectObject(memDC, hOldPromptFont);
+            GetTextExtentPoint32W(g_renderDC, prompt, (int)wcslen(prompt), &sz);
+            TextOutW(g_renderDC, (SCREEN_WIDTH - sz.cx) / 2, SCREEN_HEIGHT / 2 + 100, prompt, (int)wcslen(prompt));
+            SelectObject(g_renderDC, hOldPromptFont);
         }
     }
     
-    if (dialogueController.IsActive()) {
-        std::wstring name = dialogueController.GetSpeakerName();
-        std::wstring text = dialogueController.GetCurrentText();
-        bool showOpts = dialogueController.IsShowingOptions();
-        std::vector<std::wstring> opts = dialogueController.GetCurrentOptions();
-        int selectedOpt = dialogueController.GetSelectedOptionIndex();
-        DialogueSystem::RenderDialogueBox(memDC, SCREEN_WIDTH, SCREEN_HEIGHT, name, text, showOpts, opts, selectedOpt, 
-            dialogueController.GetNameColor(), dialogueController.GetDialogueColor());
-    }
+
     
     if (whiteFadeToVictory && whiteFadeTimer > 0) {
         float fadeProgress = 1.0f - (whiteFadeTimer / 2.0f);
@@ -6422,7 +7554,7 @@ void RenderGame(HDC hdc) {
         biFade.bmiHeader.biHeight = -SCREEN_HEIGHT;
         biFade.bmiHeader.biPlanes = 1;
         biFade.bmiHeader.biBitCount = 32;
-        SetDIBitsToDevice(memDC, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0, SCREEN_HEIGHT, backBufferPixels, &biFade, DIB_RGB_COLORS);
+        SetDIBitsToDevice(g_renderDC, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0, SCREEN_HEIGHT, backBufferPixels, &biFade, DIB_RGB_COLORS);
     }
     
     if (healFlashTimer > 0) {
@@ -6437,7 +7569,7 @@ void RenderGame(HDC hdc) {
         biHeal.bmiHeader.biHeight = -SCREEN_HEIGHT;
         biHeal.bmiHeader.biPlanes = 1;
         biHeal.bmiHeader.biBitCount = 32;
-        SetDIBitsToDevice(memDC, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0, SCREEN_HEIGHT, 
+        SetDIBitsToDevice(g_renderDC, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0, SCREEN_HEIGHT, 
             backBufferPixels, &biHeal, DIB_RGB_COLORS);
     }
     
@@ -6450,7 +7582,7 @@ void RenderGame(HDC hdc) {
         bi2.bmiHeader.biHeight = -SCREEN_HEIGHT;
         bi2.bmiHeader.biPlanes = 1;
         bi2.bmiHeader.biBitCount = 32;
-        SetDIBitsToDevice(memDC, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0, SCREEN_HEIGHT, 
+        SetDIBitsToDevice(g_renderDC, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0, SCREEN_HEIGHT, 
             backBufferPixels, &bi2, DIB_RGB_COLORS);
         
         static bool cursorShownForVictory = false;
@@ -6459,74 +7591,74 @@ void RenderGame(HDC hdc) {
             cursorShownForVictory = true;
         }
         
-        SetBkMode(memDC, TRANSPARENT);
+        SetBkMode(g_renderDC, TRANSPARENT);
         
-        HFONT oldFont = (HFONT)SelectObject(memDC, hFontBig);
-        SetTextColor(memDC, RGB(0, 150, 0));
+        HFONT oldFont = (HFONT)SelectObject(g_renderDC, hFontBig);
+        SetTextColor(g_renderDC, RGB(0, 150, 0));
         const wchar_t* wonText = L"You Won!";
         SIZE size;
-        GetTextExtentPoint32W(memDC, wonText, (int)wcslen(wonText), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 150, wonText, (int)wcslen(wonText));
+        GetTextExtentPoint32W(g_renderDC, wonText, (int)wcslen(wonText), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, 150, wonText, (int)wcslen(wonText));
         
-        SelectObject(memDC, hFontMedium);
-        SetTextColor(memDC, RGB(50, 50, 50));
+        SelectObject(g_renderDC, hFontMedium);
+        SetTextColor(g_renderDC, RGB(50, 50, 50));
         wchar_t hsText[128];
         swprintf(hsText, 128, L"Final Score: %d", score);
-        GetTextExtentPoint32W(memDC, hsText, (int)wcslen(hsText), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 240, hsText, (int)wcslen(hsText));
+        GetTextExtentPoint32W(g_renderDC, hsText, (int)wcslen(hsText), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, 240, hsText, (int)wcslen(hsText));
         
         swprintf(hsText, 128, L"High Score: %d", highScore);
-        GetTextExtentPoint32W(memDC, hsText, (int)wcslen(hsText), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 290, hsText, (int)wcslen(hsText));
+        GetTextExtentPoint32W(g_renderDC, hsText, (int)wcslen(hsText), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, 290, hsText, (int)wcslen(hsText));
         
-        SelectObject(memDC, hFontHUD);
+        SelectObject(g_renderDC, hFontHUD);
         
         RECT playAgainBtn = {SCREEN_WIDTH/2 - 120, 380, SCREEN_WIDTH/2 + 120, 430};
         RECT exitBtn = {SCREEN_WIDTH/2 - 120, 450, SCREEN_WIDTH/2 + 120, 500};
         
-        FillRect(memDC, &playAgainBtn, hBrushGreen);
-        FillRect(memDC, &exitBtn, hBrushRed); // Using standard red (200,0,0) vs old (180,0,0) - acceptable
+        FillRect(g_renderDC, &playAgainBtn, hBrushGreen);
+        FillRect(g_renderDC, &exitBtn, hBrushRed); // Using standard red (200,0,0) vs old (180,0,0) - acceptable
         
-        SetTextColor(memDC, RGB(255, 255, 255));
+        SetTextColor(g_renderDC, RGB(255, 255, 255));
         const wchar_t* playText = L"Play Again";
-        GetTextExtentPoint32W(memDC, playText, (int)wcslen(playText), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 392, playText, (int)wcslen(playText));
+        GetTextExtentPoint32W(g_renderDC, playText, (int)wcslen(playText), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, 392, playText, (int)wcslen(playText));
         
         const wchar_t* exitText = L"Exit";
-        GetTextExtentPoint32W(memDC, exitText, (int)wcslen(exitText), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, 462, exitText, (int)wcslen(exitText));
+        GetTextExtentPoint32W(g_renderDC, exitText, (int)wcslen(exitText), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, 462, exitText, (int)wcslen(exitText));
         
-        SelectObject(memDC, oldFont);
+        SelectObject(g_renderDC, oldFont);
     }
     
     // Debug Console
     if (consoleActive) {
         RECT consoleRect = {0, 0, SCREEN_WIDTH, 200};
-        FillRect(memDC, &consoleRect, hBrushDarkGray);
+        FillRect(g_renderDC, &consoleRect, hBrushDarkGray);
         
-        SetBkMode(memDC, TRANSPARENT);
-        SetTextColor(memDC, RGB(255, 255, 255));
+        SetBkMode(g_renderDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(255, 255, 255));
         
-        HFONT oldFont = (HFONT)SelectObject(memDC, hFontDebug);
+        HFONT oldFont = (HFONT)SelectObject(g_renderDC, hFontDebug);
         
-        TextOutW(memDC, 10, 10, L"DEBUG CONSOLE (type 'exit' to close)", 36);
-        TextOutW(memDC, 10, 35, L">", 1);
-        TextOutW(memDC, 25, 35, consoleBuffer.c_str(), (int)consoleBuffer.length());
+        TextOutW(g_renderDC, 10, 10, L"DEBUG CONSOLE (type 'exit' to close)", 36);
+        TextOutW(g_renderDC, 10, 35, L">", 1);
+        TextOutW(g_renderDC, 25, 35, consoleBuffer.c_str(), (int)consoleBuffer.length());
         
         // Cursor
         if ((int)(GetTickCount() / 500) % 2 == 0) {
             SIZE size;
-            GetTextExtentPoint32W(memDC, consoleBuffer.c_str(), (int)consoleBuffer.length(), &size);
-            TextOutW(memDC, 25 + size.cx, 35, L"_", 1);
+            GetTextExtentPoint32W(g_renderDC, consoleBuffer.c_str(), (int)consoleBuffer.length(), &size);
+            TextOutW(g_renderDC, 25 + size.cx, 35, L"_", 1);
         }
         
         if (wcslen(consoleError) > 0) {
-            SetTextColor(memDC, RGB(255, 80, 80));
-            TextOutW(memDC, 10, 60, consoleError, (int)wcslen(consoleError));
-            SetTextColor(memDC, RGB(255, 255, 255));
+            SetTextColor(g_renderDC, RGB(255, 80, 80));
+            TextOutW(g_renderDC, 10, 60, consoleError, (int)wcslen(consoleError));
+            SetTextColor(g_renderDC, RGB(255, 255, 255));
         }
         
-        SelectObject(memDC, oldFont);
+        SelectObject(g_renderDC, oldFont);
     }
     
     // Stats Display
@@ -6555,31 +7687,28 @@ void RenderGame(HDC hdc) {
         else if (degAngle >= 247.5f && degAngle < 292.5f) dirName = L"N";
         else if (degAngle >= 292.5f && degAngle < 337.5f) dirName = L"NE";
         
-        SetBkMode(memDC, TRANSPARENT);
-        SetTextColor(memDC, RGB(0, 0, 0));
+        SetBkMode(g_renderDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(255, 255, 255));
         wchar_t statText[512];
         swprintf(statText, 512, L"FPS: %d  |  Enemies: %d (Melee: %d/%d, Shooters: %d/%d)  |  Paragons: %d/8  |  Pos: (%.1f, %.1f)  |  Cap Timer: %.1f  |  Dir: %.1f° %ls\nHT State: %d | Timer: %.1f | CD: %.1f", 
                  currentFPS, totalEnemies, meleeCount, maxMeleeSpawn, shooterCount, maxShooterSpawn, paragonCount, player.x, player.y, spawnCapTimer, degAngle, dirName,
                  healingTower.state, healingTower.timer, healingTower.cooldownTimer);
-        TextOutW(memDC, 10, SCREEN_HEIGHT - 50, statText, (int)wcslen(statText));
+        TextOutW(g_renderDC, 60, SCREEN_HEIGHT - 90, statText, (int)wcslen(statText));
     }
     
     if (errorTimer > 0 && wcslen(errorMessage) > 0) {
         HFONT hErrFont = CreateFontW(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
-        HFONT hOldErrFont = (HFONT)SelectObject(memDC, hErrFont);
-        SetBkMode(memDC, TRANSPARENT);
-        SetTextColor(memDC, RGB(255, 50, 50));
+        HFONT hOldErrFont = (HFONT)SelectObject(g_renderDC, hErrFont);
+        SetBkMode(g_renderDC, TRANSPARENT);
+        SetTextColor(g_renderDC, RGB(255, 50, 50));
         SIZE size;
-        GetTextExtentPoint32W(memDC, errorMessage, (int)wcslen(errorMessage), &size);
-        TextOutW(memDC, (SCREEN_WIDTH - size.cx) / 2, SCREEN_HEIGHT - 100, errorMessage, (int)wcslen(errorMessage));
-        SelectObject(memDC, hOldErrFont);
+        GetTextExtentPoint32W(g_renderDC, errorMessage, (int)wcslen(errorMessage), &size);
+        TextOutW(g_renderDC, (SCREEN_WIDTH - size.cx) / 2, SCREEN_HEIGHT - 150, errorMessage, (int)wcslen(errorMessage));
+        SelectObject(g_renderDC, hOldErrFont);
         DeleteObject(hErrFont);
     }
     
-    BitBlt(hdc, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, memDC, 0, 0, SRCCOPY);
-    SelectObject(memDC, oldBitmap);
-    DeleteObject(memBitmap);
-    DeleteDC(memDC);
+    BitBlt(hdc, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, g_renderDC, 0, 0, SRCCOPY);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -6599,6 +7728,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             backBufferDIB = CreateDIBSection(screenDC, &bmi, DIB_RGB_COLORS, 
                 (void**)&backBufferPixels, NULL, 0);
             SelectObject(backBufferDC, backBufferDIB);
+            
+            g_renderDC = CreateCompatibleDC(screenDC);
+            g_renderBitmap = CreateCompatibleBitmap(screenDC, SCREEN_WIDTH, SCREEN_HEIGHT);
+            g_renderOldBitmap = (HBITMAP)SelectObject(g_renderDC, g_renderBitmap);
+            
             ReleaseDC(hwnd, screenDC);
             
             zBuffer = new float[SCREEN_WIDTH * SCREEN_HEIGHT];
@@ -6787,6 +7921,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             
+            if (wParam == 'E' && gateDialogueActive && !consoleActive) {
+                if (playerDialogueController.IsActive() && !playerDialogueController.IsShowingOptions()) {
+                    playerDialogueController.AdvanceLine();
+                }
+            }
+            
             if (dialogueController.IsShowingOptions() && !consoleActive) {
                 if (wParam == VK_UP || wParam == VK_LEFT || wParam == 'W' || wParam == 'A') {
                     dialogueController.MoveSelectionLeft();
@@ -6972,7 +8112,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         SCREEN_HEIGHT = GetSystemMetrics(SM_CYSCREEN);
     }
     
+    if (g_FullscreenMode) {
+        SCREEN_WIDTH = GetSystemMetrics(SM_CXSCREEN);
+        SCREEN_HEIGHT = GetSystemMetrics(SM_CYSCREEN);
+    }
+    
     LoadHighScore();
+    LoadGraves();
     InitTrigTables();
     InitGraphics();
     TryLoadAssets();
@@ -6988,6 +8134,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     fireballs.reserve(32);
     enemyBullets.reserve(64);
     paragons.reserve(16);
+    g_allSprites.reserve(2048);
     
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
@@ -7016,6 +8163,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             windowRect.right - windowRect.left, windowRect.bottom - windowRect.top,
             NULL, NULL, hInstance, NULL);
     }
+    
+    InitOpenGL(hMainWnd);
     
     ShowWindow(hMainWnd, nCmdShow);
     UpdateWindow(hMainWnd);
@@ -7088,7 +8237,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
         
         UpdatePlayer(deltaTime);
-        UpdateHealingTower(deltaTime);
         UpdateHealingTower(deltaTime);
         
         if (!spectatorMode) {

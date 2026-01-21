@@ -1,11 +1,12 @@
 {
     "Settings": {
         "Console": true,
-        "Fullscreen": true,
-        "Width": 1024,
-        "Height": 768,
+        "Fullscreen": false,
+        "Width": 1280,
+        "Height": 720,
         "Mouse Sensitivity": 1.0,
-        "Performance": false
+        "EnableVHS": false,
+        "Performance": true
     },
     "Version": "0.6"
 }
