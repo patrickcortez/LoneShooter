@@ -166,6 +166,7 @@ extern wchar_t g_GameVersion[32];
 void InitPostProcess();
 void ApplyPostProcess();
 void FinalizePostProcess(HDC memDC);
+void PopulateSpatialGrids();
 inline DWORD MakeColor(int r, int g, int b) {
     return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
 }
@@ -182,6 +183,8 @@ Resolution g_Resolutions[] = {
 };
 int g_NumResolutions = sizeof(g_Resolutions) / sizeof(g_Resolutions[0]);
 int g_SelectedResolution = 1;
+
+float g_RenderDistance = 30.0f;
 
 bool LoadSettingsJSON() {
     wchar_t exePath[MAX_PATH];
@@ -247,6 +250,9 @@ bool LoadSettingsJSON() {
     const char* perfVal = findValue("\"Performance\"");
     if (perfVal) g_PerformanceMode = parseBool(perfVal);
     
+    const char* renderDistVal = findValue("\"RenderDistance\"");
+    if (renderDistVal) g_RenderDistance = (float)parseDouble(renderDistVal);
+    
     const char* versionVal = findValue("\"Version\"");
     if (versionVal) {
         const char* start = strchr(versionVal, '"');
@@ -296,7 +302,8 @@ void SaveSettingsJSON() {
     fprintf(f, "        \"Height\": %d,\n", SCREEN_HEIGHT);
     fprintf(f, "        \"Mouse Sensitivity\": %.1f,\n", g_MouseSensitivity);
     fprintf(f, "        \"EnableVHS\": %s,\n", g_EnableVHS ? "true" : "false");
-    fprintf(f, "        \"Performance\": %s\n", g_PerformanceMode ? "true" : "false");
+    fprintf(f, "        \"Performance\": %s,\n", g_PerformanceMode ? "true" : "false");
+    fprintf(f, "        \"RenderDistance\": %.1f\n", g_RenderDistance);
     fprintf(f, "    },\n");
     fprintf(f, "    \"Version\": \"%s\"\n", versionA);
     fprintf(f, "}\n");
@@ -313,6 +320,8 @@ void SaveSettingsJSON() {
 #define IDC_VERSION_LABEL 1008
 #define IDC_VHS_CHECK 1009
 #define IDC_PERFORMANCE_CHECK 1010
+#define IDC_RENDERDIST_SLIDER 1011
+#define IDC_RENDERDIST_LABEL 1012
 
 HWND g_hSettingsDialog = NULL;
 bool g_SettingsConfirmed = false;
@@ -405,15 +414,26 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             SendMessage(hPerf, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hPerf, BM_SETCHECK, g_PerformanceMode ? BST_CHECKED : BST_UNCHECKED, 0);
             
+            CreateWindowExW(0, L"STATIC", L"Render Distance:", WS_CHILD | WS_VISIBLE, 30, 220, 140, 25, hwnd, NULL, NULL, NULL);
+            HWND hRenderSlider = CreateWindowExW(0, TRACKBAR_CLASSW, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS, 170, 217, 150, 30, hwnd, (HMENU)IDC_RENDERDIST_SLIDER, NULL, NULL);
+            SendMessage(hRenderSlider, TBM_SETRANGE, TRUE, MAKELPARAM(10, 30));
+            SendMessage(hRenderSlider, TBM_SETPOS, TRUE, (int)g_RenderDistance);
+            SendMessage(hRenderSlider, TBM_SETTICFREQ, 5, 0);
+            
+            wchar_t distText[32];
+            swprintf(distText, 32, L"%.0f", g_RenderDistance);
+            HWND hDistLabel = CreateWindowExW(0, L"STATIC", distText, WS_CHILD | WS_VISIBLE | SS_CENTER, 325, 222, 40, 20, hwnd, (HMENU)IDC_RENDERDIST_LABEL, NULL, NULL);
+            SendMessage(hDistLabel, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
             wchar_t verText[64];
             swprintf(verText, 64, L"Version: %ls", g_GameVersion);
-            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 225, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
+            HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 260, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
             SendMessage(hVersion, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 260, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
+            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 295, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
             SendMessage(hPlay, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 260, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
+            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 295, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
             SendMessage(hCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
             
             HWND* children = new HWND[10];
@@ -427,6 +447,13 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 wchar_t sensText[32];
                 swprintf(sensText, 32, L"%.1f", g_MouseSensitivity);
                 SetDlgItemTextW(hwnd, IDC_SENSITIVITY_LABEL, sensText);
+            }
+            if ((HWND)lParam == GetDlgItem(hwnd, IDC_RENDERDIST_SLIDER)) {
+                int pos = (int)SendMessage((HWND)lParam, TBM_GETPOS, 0, 0);
+                g_RenderDistance = (float)pos;
+                wchar_t distText[32];
+                swprintf(distText, 32, L"%d", pos);
+                SetDlgItemTextW(hwnd, IDC_RENDERDIST_LABEL, distText);
             }
             return 0;
         }
@@ -516,7 +543,7 @@ bool ShowSettingsMenu(HINSTANCE hInstance) {
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int dialogW = 400;
-    int dialogH = 360;
+    int dialogH = 400;
     int posX = (screenW - dialogW) / 2;
     int posY = (screenH - dialogH) / 2;
     
@@ -1087,6 +1114,16 @@ struct BushSprite {
     float x, y;
 };
 
+const int GRID_CELL_SIZE = 4;
+const int GRID_WIDTH = (MAP_WIDTH + GRID_CELL_SIZE - 1) / GRID_CELL_SIZE;
+const int GRID_HEIGHT = (MAP_HEIGHT + GRID_CELL_SIZE - 1) / GRID_CELL_SIZE;
+
+std::vector<int> treeGrid[17][17];
+std::vector<int> grassGrid[17][17];
+std::vector<int> rockGrid[17][17];
+std::vector<int> bushGrid[17][17];
+std::vector<int> bigRockGrid[17][17];
+
 struct Cloud {
     float x, y;
     float height;
@@ -1294,6 +1331,25 @@ float laserTimer = 0;
 
 DWORD* laserPixels = nullptr;
 int laserW = 0, laserH = 0;
+
+enum GravitalState { GRAVITAL_CHASE, GRAVITAL_SLAM, GRAVITAL_RECOVER };
+struct Gravital {
+    float x, y, z;
+    float targetX, targetY;
+    bool active;
+    int health;
+    float hurtTimer;
+    GravitalState state;
+    float slamTimer;
+    float animTimer;
+    int animFrame;
+};
+std::vector<Gravital> gravitals;
+
+DWORD* gravitalPixels = nullptr;
+int gravitalW = 0, gravitalH = 0;
+DWORD* gravitalHurtPixels = nullptr;
+int gravitalHurtW = 0, gravitalHurtH = 0;
 
 int playerDamage = 1;
 bool godMode = false;
@@ -2319,6 +2375,14 @@ void TryLoadAssets() {
     bushPixels = LoadBMPPixels(path, &bushW, &bushH);
     if (!bushPixels) { missingAssets.push_back(L"bush.bmp"); if (errorPixels) { bushPixels = errorPixels; bushW = errorW; bushH = errorH; } }
 
+    swprintf(path, MAX_PATH, L"%ls\\assets\\gravital.bmp", exePath);
+    gravitalPixels = LoadBMPPixels(path, &gravitalW, &gravitalH);
+    if (!gravitalPixels) { missingAssets.push_back(L"gravital.bmp"); if (errorPixels) { gravitalPixels = errorPixels; gravitalW = errorW; gravitalH = errorH; } }
+    
+    swprintf(path, MAX_PATH, L"%ls\\assets\\gravital_hurt.bmp", exePath);
+    gravitalHurtPixels = LoadBMPPixels(path, &gravitalHurtW, &gravitalHurtH);
+    if (!gravitalHurtPixels) { missingAssets.push_back(L"gravital_hurt.bmp"); if (errorPixels) { gravitalHurtPixels = errorPixels; gravitalHurtW = errorW; gravitalHurtH = errorH; } }
+
     swprintf(path, MAX_PATH, L"%ls\\assets\\walls\\border1.bmp", exePath);
     borderWallPixels = LoadBMPPixels(path, &borderWallW, &borderWallH);
     if (!borderWallPixels) { missingAssets.push_back(L"border1.bmp"); }
@@ -2549,6 +2613,60 @@ void GenerateWorld() {
     healingTower.animTimer = 0;
     healingTower.pulseFrame = 0;
     healingTower.particles.clear();
+    
+    PopulateSpatialGrids();
+}
+
+void PopulateSpatialGrids() {
+    for (int x = 0; x < 17; x++) {
+        for (int y = 0; y < 17; y++) {
+            treeGrid[x][y].clear();
+            grassGrid[x][y].clear();
+            rockGrid[x][y].clear();
+            bushGrid[x][y].clear();
+            bigRockGrid[x][y].clear();
+        }
+    }
+    
+    for (size_t i = 0; i < trees.size(); i++) {
+        int gx = (int)(trees[i].x / GRID_CELL_SIZE);
+        int gy = (int)(trees[i].y / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < 17 && gy >= 0 && gy < 17) {
+            treeGrid[gx][gy].push_back((int)i);
+        }
+    }
+    
+    for (size_t i = 0; i < grasses.size(); i++) {
+        int gx = (int)(grasses[i].x / GRID_CELL_SIZE);
+        int gy = (int)(grasses[i].y / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < 17 && gy >= 0 && gy < 17) {
+            grassGrid[gx][gy].push_back((int)i);
+        }
+    }
+    
+    for (size_t i = 0; i < rocks.size(); i++) {
+        int gx = (int)(rocks[i].x / GRID_CELL_SIZE);
+        int gy = (int)(rocks[i].y / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < 17 && gy >= 0 && gy < 17) {
+            rockGrid[gx][gy].push_back((int)i);
+        }
+    }
+    
+    for (size_t i = 0; i < bushes.size(); i++) {
+        int gx = (int)(bushes[i].x / GRID_CELL_SIZE);
+        int gy = (int)(bushes[i].y / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < 17 && gy >= 0 && gy < 17) {
+            bushGrid[gx][gy].push_back((int)i);
+        }
+    }
+    
+    for (size_t i = 0; i < bigRocks.size(); i++) {
+        int gx = (int)(bigRocks[i].x / GRID_CELL_SIZE);
+        int gy = (int)(bigRocks[i].y / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < 17 && gy >= 0 && gy < 17) {
+            bigRockGrid[gx][gy].push_back((int)i);
+        }
+    }
 }
 
 void UpdateHealingTower(float deltaTime) {
@@ -2717,6 +2835,113 @@ void SpawnEnemies() {
         NeuralAI::InheritBrain(enemy.brain);
         enemy.hasNeuralBrain = true;
         enemies.push_back(enemy);
+    }
+}
+
+void SpawnGravitals(float centerX, float centerY) {
+    for (int i = 0; i < 8; i++) {
+        float angle = (i / 8.0f) * 2 * PI;
+        Gravital g;
+        g.x = centerX + cosf(angle) * 6.0f; // Radius 6.0
+        g.y = centerY + sinf(angle) * 6.0f;
+        g.z = 0.75f; // Initial height (lowered)
+        g.targetX = player.x;
+        g.targetY = player.y;
+        g.active = true;
+        g.health = 30;
+        g.hurtTimer = 0;
+        g.state = GRAVITAL_CHASE;
+        g.slamTimer = 0;
+        g.animTimer = 0;
+        g.animFrame = 0;
+        gravitals.push_back(g);
+    }
+}
+
+void UpdateGravitals(float deltaTime) {
+    for (auto& g : gravitals) {
+        if (!g.active) continue;
+        
+        if (g.hurtTimer > 0) g.hurtTimer -= deltaTime;
+        
+        float dx = player.x - g.x;
+        float dy = player.y - g.y;
+        float dist = sqrtf(dx*dx + dy*dy);
+        
+        if (g.state == GRAVITAL_CHASE) {
+            float speed = 5.0f; 
+            if (dist > 0.1f) {
+                g.x += (dx / dist) * speed * deltaTime;
+                g.y += (dy / dist) * speed * deltaTime;
+            }
+            
+            // Maintain height
+            if (g.z < 0.75f) g.z += 5.0f * deltaTime; 
+            if (g.z > 0.75f) g.z = 0.75f;
+
+            if (dist < 4.0f) {
+                g.state = GRAVITAL_SLAM;
+                g.slamTimer = 0.5f; // Windup
+                g.targetX = player.x;
+                g.targetY = player.y;
+            }
+        } else if (g.state == GRAVITAL_SLAM) {
+            if (g.slamTimer > 0) {
+                 g.slamTimer -= deltaTime;
+            } else {
+                 // Slam Down
+                 g.z -= 15.0f * deltaTime; // Fast drop
+                 
+                 // Dash towards target
+                 float dashSpeed = 12.0f;
+                 float dashDx = g.targetX - g.x;
+                 float dashDy = g.targetY - g.y;
+                 float dashDist = sqrtf(dashDx*dashDx + dashDy*dashDy);
+                 if (dashDist > 0.1f) {
+                     g.x += (dashDx / dashDist) * dashSpeed * deltaTime;
+                     g.y += (dashDy / dashDist) * dashSpeed * deltaTime;
+                 }
+                 
+                 if (g.z <= 0) {
+                     g.z = 0;
+                     
+                     // Recalculate distance after dash
+                     float finalDx = player.x - g.x;
+                     float finalDy = player.y - g.y;
+                     float finalDist = sqrtf(finalDx*finalDx + finalDy*finalDy);
+                     
+                     // Impact
+                     if (finalDist < 3.0f) { // AoE Radius
+                         if (!godMode) {
+                            player.health -= 5;
+                            playerHurtTimer = 0.3f;
+                            // Knockback (Normalized)
+                            if (finalDist > 0.1f) {
+                                float push = 5.0f; // Increased force
+                                player.x += (finalDx / finalDist) * push;
+                                player.y += (finalDy / finalDist) * push;
+                            }
+                         }
+                     }
+                      // Visuals
+                     if (finalDist < 15.0f) {
+                         screenShakeTimer = 0.3f;
+                         screenShakeIntensity = 15.0f;
+                     }
+                     g.state = GRAVITAL_RECOVER;
+                 }
+            }
+        } else if (g.state == GRAVITAL_RECOVER) {
+            g.z += 5.0f * deltaTime; // Fast rise
+            if (g.z >= 0.75f) {
+                g.z = 0.75f;
+                g.state = GRAVITAL_CHASE;
+            }
+        }
+        
+        // Simple map bounds
+        if (g.x < 1) g.x = 1; if (g.x > MAP_WIDTH-2) g.x = MAP_WIDTH-2;
+        if (g.y < 1) g.y = 1; if (g.y > MAP_HEIGHT-2) g.y = MAP_HEIGHT-2;
     }
 }
 
@@ -3414,7 +3639,7 @@ void Render3DScene() {
 }
 
 void RenderSprite(DWORD* pixels, int pxW, int pxH, float sx, float sy, float dist, float scale, float heightOffset = 0.0f) {
-    if (dist < 0.5f || dist > 30.0f) return;
+    if (dist < 0.5f || dist > g_RenderDistance) return;
     if (!pixels || pxW <= 0 || pxH <= 0) return;
     
     float dx = sx - player.x;
@@ -3551,47 +3776,75 @@ void RenderSprites() {
         }
     }
 
-    for (auto& tree : trees) {
-        if (!IsInFrustum(tree.x, tree.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
-        float dx = tree.x - player.x;
-        float dy = tree.y - player.y;
-        float distSq = dx*dx + dy*dy;
-        if (distSq < 900.0f) {
-            float dist = sqrtf(distSq);
-            g_allSprites.push_back({tree.x, tree.y, dist, 0, 6.0f, 0, false, 0.0f, false});
+    int playerCellX = (int)(player.x / GRID_CELL_SIZE);
+    int playerCellY = (int)(player.y / GRID_CELL_SIZE);
+    int searchRadius = 8;
+    
+    for (int cx = playerCellX - searchRadius; cx <= playerCellX + searchRadius; cx++) {
+        for (int cy = playerCellY - searchRadius; cy <= playerCellY + searchRadius; cy++) {
+            if (cx < 0 || cx >= 17 || cy < 0 || cy >= 17) continue;
+            for (int idx : treeGrid[cx][cy]) {
+                TreeSprite& tree = trees[idx];
+                if (!IsInFrustum(tree.x, tree.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
+                float dx = tree.x - player.x;
+                float dy = tree.y - player.y;
+                float distSq = dx*dx + dy*dy;
+                if (distSq < 900.0f) {
+                    float dist = sqrtf(distSq);
+                    g_allSprites.push_back({tree.x, tree.y, dist, 0, 6.0f, 0, false, 0.0f, false});
+                }
+            }
         }
     }
     
-    for (auto& grass : grasses) {
-        if (!IsInFrustum(grass.x, grass.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
-        float dx = grass.x - player.x;
-        float dy = grass.y - player.y;
-        float distSq = dx*dx + dy*dy;
-        if (distSq < 625.0f) {
-            float dist = sqrtf(distSq);
-            g_allSprites.push_back({grass.x, grass.y, dist, 11, 0.3f, 0, false, 0.0f, false});
+    for (int cx = playerCellX - searchRadius; cx <= playerCellX + searchRadius; cx++) {
+        for (int cy = playerCellY - searchRadius; cy <= playerCellY + searchRadius; cy++) {
+            if (cx < 0 || cx >= 17 || cy < 0 || cy >= 17) continue;
+            for (int idx : grassGrid[cx][cy]) {
+                GrassSprite& grass = grasses[idx];
+                if (!IsInFrustum(grass.x, grass.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
+                float dx = grass.x - player.x;
+                float dy = grass.y - player.y;
+                float distSq = dx*dx + dy*dy;
+                if (distSq < 625.0f) {
+                    float dist = sqrtf(distSq);
+                    g_allSprites.push_back({grass.x, grass.y, dist, 11, 0.3f, 0, false, 0.0f, false});
+                }
+            }
         }
     }
     
-    for (auto& rock : rocks) {
-        if (!IsInFrustum(rock.x, rock.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
-        float dx = rock.x - player.x;
-        float dy = rock.y - player.y;
-        float distSq = dx*dx + dy*dy;
-        if (distSq < 900.0f) {
-            float dist = sqrtf(distSq);
-            g_allSprites.push_back({rock.x, rock.y, dist, 12, 0.3f, rock.variant, false, 0.0f, false});
+    for (int cx = playerCellX - searchRadius; cx <= playerCellX + searchRadius; cx++) {
+        for (int cy = playerCellY - searchRadius; cy <= playerCellY + searchRadius; cy++) {
+            if (cx < 0 || cx >= 17 || cy < 0 || cy >= 17) continue;
+            for (int idx : rockGrid[cx][cy]) {
+                RockSprite& rock = rocks[idx];
+                if (!IsInFrustum(rock.x, rock.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
+                float dx = rock.x - player.x;
+                float dy = rock.y - player.y;
+                float distSq = dx*dx + dy*dy;
+                if (distSq < 900.0f) {
+                    float dist = sqrtf(distSq);
+                    g_allSprites.push_back({rock.x, rock.y, dist, 12, 0.3f, rock.variant, false, 0.0f, false});
+                }
+            }
         }
     }
     
-    for (auto& br : bigRocks) {
-        if (!IsInFrustum(br.x, br.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
-        float dx = br.x - player.x;
-        float dy = br.y - player.y;
-        float distSq = dx*dx + dy*dy;
-        if (distSq < 1225.0f) {
-            float dist = sqrtf(distSq);
-            g_allSprites.push_back({br.x, br.y, dist, 14, 1.5f, br.variant, false, 0.0f, false});
+    for (int cx = playerCellX - searchRadius; cx <= playerCellX + searchRadius; cx++) {
+        for (int cy = playerCellY - searchRadius; cy <= playerCellY + searchRadius; cy++) {
+            if (cx < 0 || cx >= 17 || cy < 0 || cy >= 17) continue;
+            for (int idx : bigRockGrid[cx][cy]) {
+                BigRock& br = bigRocks[idx];
+                if (!IsInFrustum(br.x, br.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
+                float dx = br.x - player.x;
+                float dy = br.y - player.y;
+                float distSq = dx*dx + dy*dy;
+                if (distSq < 1225.0f) {
+                    float dist = sqrtf(distSq);
+                    g_allSprites.push_back({br.x, br.y, dist, 14, 1.5f, br.variant, false, 0.0f, false});
+                }
+            }
         }
     }
     
@@ -3629,14 +3882,20 @@ void RenderSprites() {
     }
 
     
-    for (auto& bush : bushes) {
-        if (!IsInFrustum(bush.x, bush.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
-        float dx = bush.x - player.x;
-        float dy = bush.y - player.y;
-        float distSq = dx*dx + dy*dy;
-        if (distSq < 900.0f) {
-            float dist = sqrtf(distSq);
-            g_allSprites.push_back({bush.x, bush.y, dist, 13, 0.6f, 0, false, 0.0f, false});
+    for (int cx = playerCellX - searchRadius; cx <= playerCellX + searchRadius; cx++) {
+        for (int cy = playerCellY - searchRadius; cy <= playerCellY + searchRadius; cy++) {
+            if (cx < 0 || cx >= 17 || cy < 0 || cy >= 17) continue;
+            for (int idx : bushGrid[cx][cy]) {
+                BushSprite& bush = bushes[idx];
+                if (!IsInFrustum(bush.x, bush.y, player.x, player.y, player.angle, FOV * 0.7f)) continue;
+                float dx = bush.x - player.x;
+                float dy = bush.y - player.y;
+                float distSq = dx*dx + dy*dy;
+                if (distSq < 900.0f) {
+                    float dist = sqrtf(distSq);
+                    g_allSprites.push_back({bush.x, bush.y, dist, 13, 0.6f, 0, false, 0.0f, false});
+                }
+            }
         }
     }
     
@@ -3785,6 +4044,16 @@ void RenderSprites() {
         }
     }
     
+    // Gravitals
+    for(auto& g : gravitals) {
+        if (!g.active) continue;
+        float dx = g.x - player.x;
+        float dy = g.y - player.y;
+        float dist = sqrtf(dx*dx + dy*dy);
+        // Height 2.0f to float above ground
+        g_allSprites.push_back({g.x, g.y, dist, 69, 5.0f, 0, (g.hurtTimer > 0), g.z, false});
+    }
+    
     std::sort(g_allSprites.begin(), g_allSprites.end(), [](const SpriteRender& a, const SpriteRender& b) {
         return a.dist > b.dist;
     });
@@ -3820,6 +4089,9 @@ void RenderSprites() {
              RenderSprite(rocketProjPixels, rocketProjW, rocketProjH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         } else if (sp.type == 15) { // Explosion
              RenderSprite(explosionPixels, explosionW, explosionH, sp.x, sp.y, sp.dist, sp.scale * (1.0f + (1.0f - sp.height)), 0.0f);
+        } else if (sp.type == 69) { // Gravital
+             if (sp.isHurt && gravitalHurtPixels) RenderSprite(gravitalHurtPixels, gravitalHurtW, gravitalHurtH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+             else if (gravitalPixels) RenderSprite(gravitalPixels, gravitalW, gravitalH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         } else if (sp.type == 16) { // Trail
              RenderSprite(rocketTrailPixels, rocketTrailW, rocketTrailH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         } else if (sp.type == 5) {
@@ -4721,6 +4993,12 @@ void UpdateEnemies(float deltaTime) {
                      float dy = enemy.y - br.y;
                      if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
                  }
+                 // Healing Tower Collision
+                 if (!collision && healingTower.state != TOWER_DORMANT) {
+                     float htdx = newX - healingTower.x;
+                     float htdy = enemy.y - healingTower.y;
+                     if(htdx*htdx + htdy*htdy < 1.0f) { collision = true; }
+                 }
                  if(!collision) enemy.x = newX;
             }
             centerDx = enemy.x - 32.0f;
@@ -4732,6 +5010,12 @@ void UpdateEnemies(float deltaTime) {
                      float dx = enemy.x - br.x;
                      float dy = newY - br.y;
                      if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
+                 }
+                 // Healing Tower Collision
+                 if (!collision && healingTower.state != TOWER_DORMANT) {
+                     float htdx = enemy.x - healingTower.x;
+                     float htdy = newY - healingTower.y;
+                     if(htdx*htdx + htdy*htdy < 1.0f) { collision = true; }
                  }
                  if(!collision) enemy.y = newY;
             }
@@ -5211,6 +5495,7 @@ eb.active = false; break; }
                     lastActiveClaw = idx;
                     claws[idx].state = CLAW_PH2_DROPPING;
                     claws[idx].timer = 2.0f; // Drop time
+                    SpawnGravitals(player.x, player.y);
                 }
             }
 
@@ -5581,9 +5866,8 @@ void ShootBullet() {
 }
 
 void UpdateBullets(float deltaTime) {
+    UpdateGravitals(deltaTime);
     bool shouldClearEnemies = false;
-    
-    // Update Rockets
     for (auto& r : rockets) {
         if (!r.active) continue;
         
@@ -5664,14 +5948,7 @@ void UpdateBullets(float deltaTime) {
             
             if (r.safetyTimer > 0) {
                 r.safetyTimer -= deltaTime;
-                // Skip collision during safety time
-                // Spawn Trail
-                if ((int)(GetTickCount() / 50) % 2 == 0) {
-                     RocketTrail t;
-                     t.x = r.x; t.y = r.y; t.life = 0.5f; t.active = true;
-                     rocketTrails.push_back(t);
-                }
-                continue; 
+                // Safety time only prevents self-damage, not collision detection
             }
             
             // Spawn Trail
@@ -5703,6 +5980,13 @@ void UpdateBullets(float deltaTime) {
                      if(dx*dx + dy*dy < 0.49f) { hit = true; break; }
                  }
             }
+            
+            // Healing Tower Collision (always, regardless of state)
+            if (!hit) {
+                 float htdx = r.x - healingTower.x;
+                 float htdy = r.y - healingTower.y;
+                 if (htdx*htdx + htdy*htdy < 1.0f) { hit = true; }
+            }
 
             
             if (!hit && bossActive) {
@@ -5729,6 +6013,23 @@ void UpdateBullets(float deltaTime) {
                 PlayBazookaExplosionSound();
                 screenShakeTimer = 0.5f;
                 screenShakeIntensity = 20.0f;
+                
+                for (auto& g : gravitals) {
+                    if (!g.active) continue;
+                    float dX = r.x - g.x;
+                    float dY = r.y - g.y;
+                    float dist = sqrtf(dX*dX + dY*dY);
+                    if (dist < 8.0f) {
+                        int damage = 5; // 50 * 0.1 (90% reduction)
+                        g.health -= damage;
+                        g.hurtTimer = 0.5f;
+                        if (g.health <= 0) {
+                            g.active = false;
+                            score += 5;
+                            PlayScoreSound();
+                        }
+                    }
+                }
                 
                 for (auto& e : enemies) {
                     if (!e.active) continue;
@@ -5869,6 +6170,24 @@ void UpdateBullets(float deltaTime) {
             continue;
         }
         
+        for (auto& g : gravitals) {
+            if (!g.active) continue;
+            float dx = b.x - g.x;
+            float dy = b.y - g.y;
+            if (dx*dx + dy*dy < 1.0f) {
+                b.active = false; 
+                g.health -= 1; // Standard bullet damage
+                g.hurtTimer = 0.5f;
+                if (g.health <= 0) {
+                     g.active = false;
+                     score += 5;
+                     PlayScoreSound();
+                }
+                break;
+            }
+        }
+        if (!b.active) continue;
+
         for(const auto& br : bigRocks) {
              float dx = b.x - br.x;
              float dy = b.y - br.y;
@@ -6556,6 +6875,45 @@ void DrawMinimapToBuffer() {
             }
         }
     }
+    
+    // Gravitals (Red dots)
+    DWORD gravitalColor = MakeColor(255, 50, 50);
+    for (auto& g : gravitals) {
+        if (g.active) {
+            int gx = offsetX + (int)(g.x * cellSize);
+            int gy = offsetY + (int)(g.y * cellSize);
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    int sx = gx + dx;
+                    int sy = gy + dy;
+                    if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+                        renderBuffer[sy * SCREEN_WIDTH + sx] = gravitalColor;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Healing Tower (Yellow Plus Sign)
+    DWORD towerColor = MakeColor(255, 255, 0);
+    int htX = offsetX + (int)(healingTower.x * cellSize);
+    int htY = offsetY + (int)(healingTower.y * cellSize);
+    // Draw plus sign: vertical bar
+    for (int dy = -4; dy <= 4; dy++) {
+        int sx = htX;
+        int sy = htY + dy;
+        if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+            renderBuffer[sy * SCREEN_WIDTH + sx] = towerColor;
+        }
+    }
+    // Draw plus sign: horizontal bar
+    for (int dx = -4; dx <= 4; dx++) {
+        int sx = htX + dx;
+        int sy = htY;
+        if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+            renderBuffer[sy * SCREEN_WIDTH + sx] = towerColor;
+        }
+    }
 }
 
 void DrawMinimap(HDC hdc) {
@@ -6719,8 +7077,10 @@ void DrawMinimap(HDC hdc) {
         enemies.clear();
         fireballs.clear();
         enemyBullets.clear();
+        gravitals.clear();
         InitClaws();
         marshallSpawned = false; 
+        marshallKilled = false;
         militiaBarActive = false;
         SpawnEnemies();
     }
@@ -7854,6 +8214,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         mciSendStringW(victoryMusicPath, NULL, 0, NULL);
                         mciSendStringW(L"play victory repeat", NULL, 0, NULL);
                         
+                        consoleBuffer = L"";
+                    } else if (consoleBuffer == L"unlockall") {
+                        gunUpgraded = true;
+                        bazookaUnlocked = true;
+                        // Give ammo too?
+                        weaponMaxAmmo[0] = 999; weaponAmmo[0] = 999;
+                        weaponMaxAmmo[1] = 999; weaponAmmo[1] = 999;
+                        weaponMaxAmmo[2] = 999; weaponAmmo[2] = 999;
+                        ammo = 999;
+                        consoleBuffer = L"";
+                    } else if (consoleBuffer == L"spawn gravital") {
+                        Gravital g;
+                        g.x = player.x;
+                        g.y = player.y;
+                        g.z = 0.75f; 
+                        g.targetX = player.x; 
+                        g.targetY = player.y;
+                        g.active = true;
+                        g.health = 30;
+                        g.hurtTimer = 0;
+                        g.state = GRAVITAL_CHASE; // Start in chase or idle?
+                        g.slamTimer = 0;
+                        g.animTimer = 0;
+                        g.animFrame = 0;
+                        gravitals.push_back(g);
                         consoleBuffer = L"";
                     } else if (consoleBuffer == L"help") {
                         wcscpy(consoleError, L"Commands: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode on/off, spec on/off, skip, help, exit");

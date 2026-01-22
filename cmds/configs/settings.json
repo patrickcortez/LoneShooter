@@ -1,12 +1,13 @@
 {
     "Settings": {
         "Console": true,
-        "Fullscreen": false,
+        "Fullscreen": true,
         "Width": 1280,
         "Height": 720,
         "Mouse Sensitivity": 1.0,
-        "EnableVHS": false,
-        "Performance": true
+        "EnableVHS": true,
+        "Performance": true,
+        "RenderDistance": 30.0
     },
     "Version": "0.6"
 }
