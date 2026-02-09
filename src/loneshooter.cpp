@@ -1,6 +1,6 @@
 /*
  * LoneShooter - Open World 2.5D Raycaster
- * Compile:g++ -o cmds/LoneShooter64.exe src/loneshooter.cpp -lgdi32 -lwinmm -mwindows -lole32 -loleaut32 -luuid -lcomctl32 -lopengl32 -msse2 -O2 -static 2>&1
+ * Compile:g++ -o bin/LoneShooter64.exe src/loneshooter.cpp -lgdi32 -lwinmm -mwindows -lole32 -loleaut32 -luuid -lcomctl32 -lopengl32 -msse2 -O2 -static 2>&1
  * Run: ./LoneShooter.exe
  * Controls: WASD=Move, Mouse=Look, ESC=Quit
  * By Patrick Andrew Cortez
