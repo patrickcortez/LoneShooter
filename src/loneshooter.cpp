@@ -325,9 +325,11 @@ void SaveSettingsJSON() {
 #define IDC_PERFORMANCE_CHECK 1010
 #define IDC_RENDERDIST_SLIDER 1011
 #define IDC_RENDERDIST_LABEL 1012
+#define IDC_CONTINUE_BUTTON 1013
 
 HWND g_hSettingsDialog = NULL;
 bool g_SettingsConfirmed = false;
+bool g_LoadGameRequested = false;
 
 LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static HBITMAP hBannerBmp = NULL;
@@ -433,10 +435,13 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             HWND hVersion = CreateWindowExW(0, L"STATIC", verText, WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 260, 400, 20, hwnd, (HMENU)IDC_VERSION_LABEL, NULL, NULL);
             SendMessage(hVersion, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 70, 295, 120, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
+            HWND hContinue = CreateWindowExW(0, L"BUTTON", L"Continue", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 30, 295, 100, 40, hwnd, (HMENU)IDC_CONTINUE_BUTTON, NULL, NULL);
+            SendMessage(hContinue, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            HWND hPlay = CreateWindowExW(0, L"BUTTON", L"Play", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 150, 295, 100, 40, hwnd, (HMENU)IDC_PLAY_BUTTON, NULL, NULL);
             SendMessage(hPlay, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 295, 120, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
+            HWND hCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 270, 295, 100, 40, hwnd, (HMENU)IDC_CANCEL_BUTTON, NULL, NULL);
             SendMessage(hCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
             
             HWND* children = new HWND[10];
@@ -462,7 +467,7 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
         case WM_COMMAND: {
             int wmId = LOWORD(wParam);
-            if (wmId == IDC_PLAY_BUTTON) {
+            if (wmId == IDC_PLAY_BUTTON || wmId == IDC_CONTINUE_BUTTON) {
                 HWND hCombo = GetDlgItem(hwnd, IDC_RESOLUTION_COMBO);
                 int sel = (int)SendMessage(hCombo, CB_GETCURSEL, 0, 0);
                 if (sel != CB_ERR) {
@@ -489,6 +494,7 @@ LRESULT CALLBACK SettingsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 
                 SaveSettingsJSON();
                 g_SettingsConfirmed = true;
+                if (wmId == IDC_CONTINUE_BUTTON) g_LoadGameRequested = true;
                 DestroyWindow(hwnd);
             } else if (wmId == IDC_CANCEL_BUTTON) {
                 g_SettingsConfirmed = false;
@@ -869,7 +875,8 @@ int SCREEN_HEIGHT = 768;
 bool g_FullscreenMode = true;
 bool g_DevConsole = false;
 float g_MouseSensitivity = 1.0f;
-wchar_t g_GameVersion[32] = L"0.6";
+wchar_t g_GameVersion[32] = L"1.0";
+bool g_PauseMenuOpen = false;
 const int MAP_WIDTH = 64;
 const int MAP_HEIGHT = 64;
 const float PI = 3.14159265f;
@@ -1033,31 +1040,32 @@ struct Player {
 };
 
 struct Enemy {
-    float x, y;
-    float distance;
-    bool active;
-    float speed;
-    int spriteIndex;
-    int health;
-    int maxHealth;
-    float hurtTimer;
-    bool isShooter;
-    float fireTimer;
-    float firingTimer;
-    bool isMarshall;
-    int state;
-    float healTimer;
-    float summonTimer;
-    float attackTimer;
-    int tacticState;
-    int flankDir;
-    float tacticTimer;
+    float x = 0.0f, y = 0.0f;
+    float distance = 0.0f;
+    bool active = false;
+    float speed = 0.0f;
+    int spriteIndex = 0;
+    int health = 0;
+    int maxHealth = 0;
+    float hurtTimer = 0.0f;
+    bool isShooter = false;
+    float fireTimer = 0.0f;
+    float firingTimer = 0.0f;
+    bool isMarshall = false;
+    int state = 0;
+    float healTimer = 0.0f;
+    float summonTimer = 0.0f;
+    float attackTimer = 0.0f;
+    int tacticState = 0;
+    int flankDir = 0;
+    float tacticTimer = 0.0f;
     std::vector<std::pair<int,int>> path;
-    int pathIndex;
-    float pathRecalcTimer;
+    int pathIndex = 0;
+    float pathRecalcTimer = 0.0f;
     NeuralAI::NeuralNet brain;
-    bool hasNeuralBrain;
-    bool isPhalanx;
+    bool hasNeuralBrain = false;
+    int dodgeDir = 0;
+    bool isPhalanx = false;
     bool isSpearGuy = false;
     int spearState = 0; // 0: Move, 1: Idle, 2: Dash, 3: Block
     float dashCooldown = 0.0f;
@@ -1443,7 +1451,7 @@ DWORD fpsLastTime = 0;
 
 wchar_t errorMessage[256] = L"";
 float errorTimer = 0;
-wchar_t consoleError[128] = L"";
+wchar_t consoleError[256] = L"";
 std::vector<std::wstring> missingAssets;
 bool assetsFolderMissing = false;
 
@@ -2310,9 +2318,9 @@ void TryLoadAssets() {
     officerHurtPixels = LoadBMPPixels(path, &officerHurtW, &officerHurtH);
     if (!officerHurtPixels) { missingAssets.push_back(L"officer-hurt.bmp"); if (errorPixels) { officerHurtPixels = errorPixels; officerHurtW = errorW; officerHurtH = errorH; } }
 
-    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\enemy\\officer-fire.bmp", exePath);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\enemy\\officer-firing.bmp", exePath);
     officerFirePixels = LoadBMPPixels(path, &officerFireW, &officerFireH);
-    if (!officerFirePixels) { missingAssets.push_back(L"officer-fire.bmp"); if (errorPixels) { officerFirePixels = errorPixels; officerFireW = errorW; officerFireH = errorH; } }
+    if (!officerFirePixels) { missingAssets.push_back(L"officer-firing.bmp"); if (errorPixels) { officerFirePixels = errorPixels; officerFireW = errorW; officerFireH = errorH; } }
 
     swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\defected\\defected-moving.bmp", exePath);
     defectedMovingPixels = LoadBMPPixels(path, &defectedMovingW, &defectedMovingH);
@@ -4809,7 +4817,7 @@ void UpdateEnemies(float deltaTime) {
                 float bdist = sqrtf(bdx*bdx + bdy*bdy);
                 if (bdist < 10.0f) {
                     float dot = (b.dirX * bdx) + (b.dirY * bdy);
-                    if (dot > 0) {
+                    if (dot < 0) {
                         beingShotAt = true;
                         break;
                     }
@@ -5496,12 +5504,15 @@ void UpdateEnemies(float deltaTime) {
             }
             
             if (enemy.hasNeuralBrain && bulletIncoming && fabsf(neuralDodge) > 0.2f) {
+                if (enemy.dodgeDir == 0) enemy.dodgeDir = (rand() % 2 == 0) ? 1 : -1;
                 // Perpendicular to incoming bullet dir
-                float dodgeX = -bulletDirY;
-                float dodgeY = bulletDirX;
+                float dodgeX = -bulletDirY * enemy.dodgeDir;
+                float dodgeY = bulletDirX * enemy.dodgeDir;
                 // Move out of bullet path with an enhanced burst of speed
-                moveX += dodgeX * neuralDodge * enemy.speed * 2.0f * deltaTime;
-                moveY += dodgeY * neuralDodge * enemy.speed * 2.0f * deltaTime;
+                moveX += dodgeX * fabsf(neuralDodge) * enemy.speed * 2.0f * deltaTime;
+                moveY += dodgeY * fabsf(neuralDodge) * enemy.speed * 2.0f * deltaTime;
+            } else {
+                enemy.dodgeDir = 0;
             }
             
             // Rock cover-seeking: when a bullet is incoming and coverSeek is active,
@@ -8250,7 +8261,38 @@ void RenderGame(HDC hdc) {
         DeleteObject(bgBrush);
         DeleteObject(btnBrush);
         DeleteObject(borderPen);
+    }
+    
+    if (g_PauseMenuOpen) {
+        // Semi-transparent overlay (fake it by drawing a dark rect over everything without alpha for simplicity, or just draw a solid menu box)
+        RECT pauseBox = {SCREEN_WIDTH/2 - 150, SCREEN_HEIGHT/2 - 100, SCREEN_WIDTH/2 + 150, SCREEN_HEIGHT/2 + 150};
+        FillRect(backBufferDC, &pauseBox, hBrushDarkGray);
         
+        SetBkMode(backBufferDC, TRANSPARENT);
+        SetTextColor(backBufferDC, RGB(255, 255, 255));
+        HFONT hOldFont = (HFONT)SelectObject(backBufferDC, hFontHUD);
+        
+        const wchar_t* title = L"PAUSED";
+        SIZE sz;
+        GetTextExtentPoint32W(backBufferDC, title, wcslen(title), &sz);
+        TextOutW(backBufferDC, SCREEN_WIDTH/2 - sz.cx/2, SCREEN_HEIGHT/2 - 80, title, wcslen(title));
+        
+        RECT quitBtn = {SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 20, SCREEN_WIDTH/2 + 100, SCREEN_HEIGHT/2 + 20};
+        FillRect(backBufferDC, &quitBtn, hBrushDarkRed);
+        const wchar_t* quitText = L"Quit";
+        GetTextExtentPoint32W(backBufferDC, quitText, wcslen(quitText), &sz);
+        TextOutW(backBufferDC, SCREEN_WIDTH/2 - sz.cx/2, SCREEN_HEIGHT/2 - 20 + 20 - sz.cy/2, quitText, wcslen(quitText));
+        
+        RECT saveBtn = {SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 + 40, SCREEN_WIDTH/2 + 100, SCREEN_HEIGHT/2 + 80};
+        FillRect(backBufferDC, &saveBtn, hBrushBlue);
+        const wchar_t* saveText = L"Save and Exit";
+        GetTextExtentPoint32W(backBufferDC, saveText, wcslen(saveText), &sz);
+        TextOutW(backBufferDC, SCREEN_WIDTH/2 - sz.cx/2, SCREEN_HEIGHT/2 + 40 + 20 - sz.cy/2, saveText, wcslen(saveText));
+        
+        SelectObject(backBufferDC, hOldFont);
+    }
+
+    if (g_LevelUpWindowOpen || g_PauseMenuOpen || victoryScreen) {
         // Draw a custom software cursor
         POINT pt;
         if (GetCursorPos(&pt) && ScreenToClient(hMainWnd, &pt)) {
@@ -8778,6 +8820,119 @@ void RenderGame(HDC hdc) {
     BitBlt(hdc, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, g_renderDC, 0, 0, SRCCOPY);
 }
 
+void SaveGame() {
+    CreateDirectoryW(L"configs", NULL);
+    FILE* f = _wfopen(L"configs/savegame.dat", L"wb");
+    if (!f) return;
+    
+    fwrite(&player, sizeof(Player), 1, f);
+    fwrite(&score, sizeof(int), 1, f);
+    fwrite(&phase2Active, sizeof(bool), 1, f);
+    fwrite(&forceFieldActive, sizeof(bool), 1, f);
+    fwrite(&enragedMode, sizeof(bool), 1, f);
+    fwrite(&hordeActive, sizeof(bool), 1, f);
+    fwrite(&bossActive, sizeof(bool), 1, f);
+    fwrite(&preBossPhase, sizeof(bool), 1, f);
+    fwrite(&bossHealth, sizeof(int), 1, f);
+    
+    fwrite(&currentWeapon, sizeof(int), 1, f);
+    fwrite(&ammo, sizeof(int), 1, f);
+    fwrite(weaponAmmo, sizeof(int), 3, f);
+    fwrite(&gunUpgraded, sizeof(bool), 1, f);
+    fwrite(&bazookaUnlocked, sizeof(bool), 1, f);
+    
+    int enemyCount = enemies.size();
+    fwrite(&enemyCount, sizeof(int), 1, f);
+    for (auto& e : enemies) {
+        fwrite(&e.x, sizeof(float), 1, f);
+        fwrite(&e.y, sizeof(float), 1, f);
+        fwrite(&e.active, sizeof(bool), 1, f);
+        fwrite(&e.spriteIndex, sizeof(int), 1, f);
+        fwrite(&e.health, sizeof(int), 1, f);
+        fwrite(&e.maxHealth, sizeof(int), 1, f);
+        fwrite(&e.isShooter, sizeof(bool), 1, f);
+        fwrite(&e.isMarshall, sizeof(bool), 1, f);
+        fwrite(&e.state, sizeof(int), 1, f);
+        fwrite(&e.tacticState, sizeof(int), 1, f);
+        fwrite(&e.flankDir, sizeof(int), 1, f);
+        fwrite(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
+        fwrite(&e.hasNeuralBrain, sizeof(bool), 1, f);
+        fwrite(&e.dodgeDir, sizeof(int), 1, f);
+        fwrite(&e.isPhalanx, sizeof(bool), 1, f);
+        fwrite(&e.isSpearGuy, sizeof(bool), 1, f);
+        fwrite(&e.spearState, sizeof(int), 1, f);
+        fwrite(&e.isOfficer, sizeof(bool), 1, f);
+        fwrite(&e.isDefectedOfficer, sizeof(bool), 1, f);
+        fwrite(&e.isDefectedGunner, sizeof(bool), 1, f);
+        fwrite(&e.officerState, sizeof(int), 1, f);
+        fwrite(&e.speed, sizeof(float), 1, f);
+    }
+    
+    for (int i = 0; i < 6; i++) {
+        fwrite(&claws[i], sizeof(Claw), 1, f);
+    }
+
+    fclose(f);
+}
+
+bool LoadGame() {
+    FILE* f = _wfopen(L"configs/savegame.dat", L"rb");
+    if (!f) return false;
+    
+    fread(&player, sizeof(Player), 1, f);
+    fread(&score, sizeof(int), 1, f);
+    fread(&phase2Active, sizeof(bool), 1, f);
+    fread(&forceFieldActive, sizeof(bool), 1, f);
+    fread(&enragedMode, sizeof(bool), 1, f);
+    fread(&hordeActive, sizeof(bool), 1, f);
+    fread(&bossActive, sizeof(bool), 1, f);
+    fread(&preBossPhase, sizeof(bool), 1, f);
+    fread(&bossHealth, sizeof(int), 1, f);
+    
+    fread(&currentWeapon, sizeof(int), 1, f);
+    fread(&ammo, sizeof(int), 1, f);
+    fread(weaponAmmo, sizeof(int), 3, f);
+    fread(&gunUpgraded, sizeof(bool), 1, f);
+    fread(&bazookaUnlocked, sizeof(bool), 1, f);
+    
+    int enemyCount = 0;
+    fread(&enemyCount, sizeof(int), 1, f);
+    enemies.clear();
+    for (int i = 0; i < enemyCount; i++) {
+        Enemy e;
+        fread(&e.x, sizeof(float), 1, f);
+        fread(&e.y, sizeof(float), 1, f);
+        fread(&e.active, sizeof(bool), 1, f);
+        fread(&e.spriteIndex, sizeof(int), 1, f);
+        fread(&e.health, sizeof(int), 1, f);
+        fread(&e.maxHealth, sizeof(int), 1, f);
+        fread(&e.isShooter, sizeof(bool), 1, f);
+        fread(&e.isMarshall, sizeof(bool), 1, f);
+        fread(&e.state, sizeof(int), 1, f);
+        fread(&e.tacticState, sizeof(int), 1, f);
+        fread(&e.flankDir, sizeof(int), 1, f);
+        fread(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
+        fread(&e.hasNeuralBrain, sizeof(bool), 1, f);
+        fread(&e.dodgeDir, sizeof(int), 1, f);
+        fread(&e.isPhalanx, sizeof(bool), 1, f);
+        fread(&e.isSpearGuy, sizeof(bool), 1, f);
+        fread(&e.spearState, sizeof(int), 1, f);
+        fread(&e.isOfficer, sizeof(bool), 1, f);
+        fread(&e.isDefectedOfficer, sizeof(bool), 1, f);
+        fread(&e.isDefectedGunner, sizeof(bool), 1, f);
+        fread(&e.officerState, sizeof(int), 1, f);
+        fread(&e.speed, sizeof(float), 1, f);
+        enemies.push_back(e);
+    }
+    
+    for (int i = 0; i < 6; i++) {
+        fread(&claws[i], sizeof(Claw), 1, f);
+    }
+    
+    fclose(f);
+    return true;
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE: {
@@ -8948,7 +9103,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         gravitals.push_back(g);
                         consoleBuffer = L"";
                     } else if (consoleBuffer == L"help") {
-                        wcscpy(consoleError, L"Commands: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode on/off, spec on/off, skip, help, exit");
+                        wcscpy(consoleError, L"Cmds: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode true/false, spec on/off, skip, unlockall, spawn gravital, exit");
                         consoleBuffer = L"";
                     } else {
                         wcscpy(consoleError, L"Unknown command");
@@ -8972,7 +9127,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
             if (victoryScreen) return 0;
             keys[wParam & 0xFF] = true;
-            if (wParam == VK_ESCAPE) PostQuitMessage(0);
+            if (wParam == VK_ESCAPE) g_PauseMenuOpen = !g_PauseMenuOpen;
             if (gunUpgraded && !consoleActive) {
                 int nextWeapon = currentWeapon;
                 if (wParam == '1' && !dialogueController.IsShowingOptions()) nextWeapon = 0;
@@ -9043,6 +9198,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             keys[wParam & 0xFF] = false;
             return 0;
         case WM_LBUTTONDOWN: {
+            if (g_PauseMenuOpen) {
+                int mx = LOWORD(lParam);
+                int my = HIWORD(lParam);
+                if (mx >= SCREEN_WIDTH/2 - 100 && mx <= SCREEN_WIDTH/2 + 100) {
+                    if (my >= SCREEN_HEIGHT/2 - 20 && my <= SCREEN_HEIGHT/2 + 20) {
+                        PostQuitMessage(0); // Quit
+                    } else if (my >= SCREEN_HEIGHT/2 + 40 && my <= SCREEN_HEIGHT/2 + 80) {
+                        SaveGame();
+                        PostQuitMessage(0); // Save and Exit
+                    }
+                }
+                return 0;
+            }
             if (consoleActive) return 0;
             if (g_LevelUpWindowOpen) {
                 int mx = LOWORD(lParam);
@@ -9147,7 +9315,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         case WM_MOUSEMOVE: {
-            if (consoleActive || victoryScreen || g_LevelUpWindowOpen) return 0;
+            if (consoleActive || victoryScreen || g_LevelUpWindowOpen || g_PauseMenuOpen) return 0;
             
             static int lastMouseX = SCREEN_WIDTH / 2;
             int mx = LOWORD(lParam);
@@ -9269,6 +9437,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SpawnMedkit();
     InitClaws();
     InitThreadPool();
+    
+    if (g_LoadGameRequested) {
+        LoadGame();
+    }
     
     enemies.reserve(64);
     bullets.reserve(32);
@@ -9404,7 +9576,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             timeAccum = 0;
         }
         
-        if (!g_LevelUpWindowOpen) {
+        if (!g_LevelUpWindowOpen && !g_PauseMenuOpen) {
             UpdatePlayer(deltaTime);
             UpdateHealingTower(deltaTime);
             
