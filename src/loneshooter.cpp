@@ -5031,7 +5031,7 @@ void UpdateEnemies(float deltaTime) {
                 int count = gunners.size();
                 bool allReady = true;
                 for (auto* g : gunners) {
-                    float offset = (i - (count-1)/2.0f) * 1.5f;
+                    float offset = (i - (count-1)/2.0f) * 0.8f;
                     float tx = enemy.x + cosf(lineAngle) * offset;
                     float ty = enemy.y + sinf(lineAngle) * offset;
                     float gdx = tx - g->x; float gdy = ty - g->y;
@@ -5312,6 +5312,27 @@ void UpdateEnemies(float deltaTime) {
             if (nearbyCount >= 8 && !hordeActive) {
                 hordeActive = true;
                 hordeMessageTimer = 3.0f;
+                if (officerSpawned) {
+                    Enemy* officer = nullptr;
+                    int lineCount = 0;
+                    for (auto& e : enemies) {
+                        if (e.active) {
+                            if (e.isOfficer) officer = &e;
+                            else if (e.isShooter && !e.isDefectedGunner && !e.isDefectedOfficer) lineCount++;
+                        }
+                    }
+                    if (officer) {
+                        int spawnCount = lineCount / 2;
+                        for (int i = 0; i < spawnCount; i++) {
+                            Enemy shooter;
+                            shooter.x = officer->x + (rand()%200 - 100)/100.0f;
+                            shooter.y = officer->y + (rand()%200 - 100)/100.0f;
+                            shooter.active = true; shooter.speed = 1.2f; shooter.spriteIndex = 0; shooter.health = 2; shooter.maxHealth = 2;
+                            shooter.isShooter = true; shooter.fireTimer = 2.0f; shooter.hasNeuralBrain = true; NeuralAI::InheritBrain(shooter.brain);
+                            pendingEnemies.push_back(shooter);
+                        }
+                    }
+                }
             }
             
             int hordeCount = 0;
