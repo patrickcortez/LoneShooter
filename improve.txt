@@ -1,0 +1,52 @@
+
+
+## Neural AI (neural.hpp)
+
+**1. Elitism-only evolution is fragile.** `InheritBrain` always clones the *single* global best and mutates it. One lucky high-fitness brain (e.g., one that got spawned behind the player) can lock the population into a local optimum. Suggestions:
+- Keep a small pool (top 3–5 brains) and pick a random parent, or crossover two parents.
+- Track a *population* of brains per generation rather than one best; re-evaluate the best on multiple episodes since fitness is highly noisy.
+
+**2. Fitness noise / credit assignment.** `survivalTime` heavily rewards staying alive at low player skill regardless of behavior. Consider:
+- Fitness = damageDealt − damageTaken + weighted evasion + time-near-player bonus.
+- Normalize per-episode stats before comparing (e.g., divide by episode length).
+- Track `damageTaken` — you currently can't distinguish "good at dodging" from "player never shot at me."
+
+**3. Add input asymmetry / missing senses.** The net can't see:
+- Its own position relative to map/walls beyond one cell ahead
+- Player health (opportunistic aggression when player is low)
+- Cooldown/reload state of its own weapon
+- Line-of-sight to player (a boolean is very learnable)
+
+Also, inputs 0 and 1 (dist, angle) — consider giving sin/cos of the angle instead of raw atan2, since ±π wraps awkwardly for a tanh network.
+
+**4. Deterministic `rand()` usage.** `rand()` is low-quality and not thread-safe. If you ever simulate AI off-thread or want reproducible runs, swap to a small xorshift/PCG PRNG seeded per-enemy. Also `MUTATION_RATE * 100` truncation makes the actual rate 15% but rounding drift is possible — use `(float)rand()/RAND_MAX`.
+
+**5. Output interpretation.** Raw tanh outputs are continuous, but things like `dodgeBoost` are better as *impulses* — apply only when above a threshold, with a cooldown, so enemies don't jitter. Consider an argmax/softmax over a "mode" output (chase / retreat / strafe / take cover) instead of 5 independent continuous signals — discrete modes are far easier to evolve and debug.
+
+**6. Persistence robustness.** On load, validate `generation` and `globalBestFitness` are sane (>0, not NaN), otherwise a corrupted file silently poisons training. Also consider saving a small population, not just one brain.
+
+## Pathfinder (pathfinder.hpp)
+
+**7. O(4096) full-grid reset per call.** The four `static` arrays are cleared every `FindPath` call. With many enemies pathing each frame this is wasteful. Either:
+- Use a "generation stamp" array (`int visitStamp[64][64]`) so you only touch visited cells, or
+- Allocate per-enemy scratch state, or
+- Throttle repaths (repath every 0.25–0.5s per enemy, or only when the target moves > N cells).
+
+**8. `MAX_SEARCH_NODES = 500` may fail silently.** On a 64×64 map with the spire obstacle, 500 nodes can be exhausted before reaching a distant target — the caller gets an empty path and the enemy presumably stands still. Consider returning a *partial* path toward the best node found (lowest h), a standard fallback.
+
+**9. No path smoothing.** The raw grid path makes enemies move in staircase zig-zags. Add string-pulling / line-of-sight skipping (walk the path and drop waypoints the enemy can see past). This alone makes movement look dramatically better.
+
+**10. Diagonal corner-cutting check is too strict.** You block diagonals only if *both* adjacent cells are blocked; typically you block if *either* is (prevents clipping through corners). Conversely, if enemies have radius > 0.5 cells, you should check clearance, not just the cell center.
+
+**11. Hard-coded spire.** `SPIRE_CENTER/RADIUS` baked into pathfinder couples it to one map layout. Move these into the world data or the external collision callback.
+
+**12. No cost terrain / danger fields.** A* costs are uniform. For an FPS, adding a per-cell "danger" cost (recently shot at, player line-of-fire) makes enemies naturally seek cover and flank — this pairs beautifully with the neural `coverSeek` output (use it to pick between "direct path to player" and "path to cover node").
+
+## Integration ideas
+
+- **Hybrid architecture works well**: let the network choose *goals* (target position = player, cover point, flank point) and let A* handle the *how*. That shrinks what evolution must discover.
+- **Repath caching**: cache paths per enemy and only recompute when world/target changes meaningfully.
+- **Logging/debug**: add a debug overlay showing each enemy's current outputs (moveBias, strafe, mode) — invaluable when diagnosing why generation 40 enemies all huddle in a corner.
+
+Happy to sketch code for any of these — the population pool or path smoothing would be good starting points.
+

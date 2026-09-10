@@ -11,15 +11,13 @@
 #include <cmath>
 #include <algorithm>
 #include <queue>
+#include <cstring>
 
 namespace Pathfinder {
 
 const int PATH_MAP_WIDTH = 64;
 const int PATH_MAP_HEIGHT = 64;
 const int MAX_SEARCH_NODES = 500;
-const float SPIRE_CENTER_X = 32.0f;
-const float SPIRE_CENTER_Y = 32.0f;
-const float SPIRE_RADIUS = 3.0f;
 
 struct PathNode {
     int x, y;
@@ -36,9 +34,19 @@ static int (*worldMapPtr)[PATH_MAP_HEIGHT] = nullptr;
 typedef bool (*ExternalCollisionFunc)(float x, float y);
 static ExternalCollisionFunc externalCollisionCheck = nullptr;
 
+// Stamps array to replace O(4096) loop
+static int visitStamp[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
+static int currentVisitStamp = 0;
+// Re-usable tracking arrays
+static float gScoreMap[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
+static int parentXMap[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
+static int parentYMap[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
+
 inline void Init(int (*wm)[PATH_MAP_HEIGHT], ExternalCollisionFunc extCollision = nullptr) {
     worldMapPtr = wm;
     externalCollisionCheck = extCollision;
+    memset(visitStamp, 0, sizeof(visitStamp));
+    currentVisitStamp = 0;
 }
 
 inline bool IsBlocked(int x, int y) {
@@ -47,19 +55,38 @@ inline bool IsBlocked(int x, int y) {
     
     float cellCenterX = x + 0.5f;
     float cellCenterY = y + 0.5f;
-    float dx = cellCenterX - SPIRE_CENTER_X;
-    float dy = cellCenterY - SPIRE_CENTER_Y;
-    if (dx*dx + dy*dy < SPIRE_RADIUS * SPIRE_RADIUS) return true;
-    
     if (externalCollisionCheck && externalCollisionCheck(cellCenterX, cellCenterY)) return true;
     
     return false;
 }
 
+inline bool LineOfSight(int x0, int y0, int x1, int y1) {
+    int dx = std::abs(x1 - x0);
+    int dy = -std::abs(y1 - y0);
+    int sx = x0 < x1 ? 1 : -1;
+    int sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy, e2;
+    
+    while (true) {
+        if (IsBlocked(x0, y0)) return false;
+        if (x0 == x1 && y0 == y1) break;
+        e2 = 2 * err;
+        
+        // Avoid corner cutting
+        if (e2 >= dy && e2 <= dx) {
+            if (IsBlocked(x0 + sx, y0) || IsBlocked(x0, y0 + sy)) return false;
+        }
+        
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    return true;
+}
+
 inline float Heuristic(int x1, int y1, int x2, int y2) {
     float dx = (float)(x2 - x1);
     float dy = (float)(y2 - y1);
-    return sqrtf(dx*dx + dy*dy);
+    return std::sqrt(dx*dx + dy*dy);
 }
 
 inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, float targetX, float targetY) {
@@ -96,19 +123,8 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
         return result;
     }
     
-    static bool closedSet[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
-    static float gScore[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
-    static int parentX[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
-    static int parentY[PATH_MAP_WIDTH][PATH_MAP_HEIGHT];
-    
-    for (int i = 0; i < PATH_MAP_WIDTH; i++) {
-        for (int j = 0; j < PATH_MAP_HEIGHT; j++) {
-            closedSet[i][j] = false;
-            gScore[i][j] = 1e9f;
-            parentX[i][j] = -1;
-            parentY[i][j] = -1;
-        }
-    }
+    // Increment stamp instead of clearing 4096 elements
+    currentVisitStamp++;
     
     std::priority_queue<PathNode, std::vector<PathNode>, std::greater<PathNode>> openSet;
     
@@ -122,7 +138,9 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
     start.parentY = -1;
     
     openSet.push(start);
-    gScore[sx][sy] = 0;
+    gScoreMap[sx][sy] = 0;
+    
+    PathNode bestNode = start;
     
     int nodesSearched = 0;
     
@@ -130,26 +148,20 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
     const int dy8[] = {-1, -1, -1, 0, 0, 1, 1, 1};
     const float cost8[] = {1.414f, 1.0f, 1.414f, 1.0f, 1.0f, 1.414f, 1.0f, 1.414f};
     
+    bool targetFound = false;
+    
     while (!openSet.empty() && nodesSearched < MAX_SEARCH_NODES) {
         PathNode current = openSet.top();
         openSet.pop();
         
-        if (closedSet[current.x][current.y]) continue;
-        closedSet[current.x][current.y] = true;
+        if (visitStamp[current.x][current.y] == currentVisitStamp) continue;
+        visitStamp[current.x][current.y] = currentVisitStamp;
         nodesSearched++;
         
         if (current.x == tx && current.y == ty) {
-            int cx = tx;
-            int cy = ty;
-            while (cx != -1 && cy != -1) {
-                result.push_back({cx, cy});
-                int px = parentX[cx][cy];
-                int py = parentY[cx][cy];
-                cx = px;
-                cy = py;
-            }
-            std::reverse(result.begin(), result.end());
-            return result;
+            bestNode = current;
+            targetFound = true;
+            break;
         }
         
         for (int i = 0; i < 8; i++) {
@@ -157,19 +169,23 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
             int ny = current.y + dy8[i];
             
             if (IsBlocked(nx, ny)) continue;
-            if (closedSet[nx][ny]) continue;
+            if (visitStamp[nx][ny] == currentVisitStamp) continue;
             
+            // Fix diagonal movement clipping (block if EITHER adjacent is blocked)
             if (dx8[i] != 0 && dy8[i] != 0) {
-                if (IsBlocked(current.x + dx8[i], current.y) && 
+                if (IsBlocked(current.x + dx8[i], current.y) || 
                     IsBlocked(current.x, current.y + dy8[i])) continue;
             }
             
-            float tentativeG = gScore[current.x][current.y] + cost8[i];
+            float tentativeG = gScoreMap[current.x][current.y] + cost8[i];
             
-            if (tentativeG < gScore[nx][ny]) {
-                gScore[nx][ny] = tentativeG;
-                parentX[nx][ny] = current.x;
-                parentY[nx][ny] = current.y;
+            // If not visited in this stamp, treat gScore as infinity
+            bool firstVisit = (parentXMap[nx][ny] == -1 || visitStamp[nx][ny] != currentVisitStamp);
+            
+            if (firstVisit || tentativeG < gScoreMap[nx][ny]) {
+                gScoreMap[nx][ny] = tentativeG;
+                parentXMap[nx][ny] = current.x;
+                parentYMap[nx][ny] = current.y;
                 
                 PathNode neighbor;
                 neighbor.x = nx;
@@ -180,12 +196,48 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
                 neighbor.parentX = current.x;
                 neighbor.parentY = current.y;
                 
+                if (neighbor.h < bestNode.h) {
+                    bestNode = neighbor;
+                }
+                
                 openSet.push(neighbor);
             }
         }
     }
     
-    return result;
+    // Traceback from bestNode
+    int cx = bestNode.x;
+    int cy = bestNode.y;
+    while (cx != -1 && cy != -1 && !(cx == sx && cy == sy)) {
+        result.push_back({cx, cy});
+        int px = parentXMap[cx][cy];
+        int py = parentYMap[cx][cy];
+        cx = px;
+        cy = py;
+    }
+    result.push_back({sx, sy});
+    std::reverse(result.begin(), result.end());
+    
+    // Path smoothing (string-pulling)
+    std::vector<std::pair<int,int>> smoothed;
+    if (!result.empty()) {
+        smoothed.push_back(result[0]);
+        int current = 0;
+        while (current < (int)result.size() - 1) {
+            int next = current + 1;
+            // Raycast forward to find furthest visible node
+            for (int i = (int)result.size() - 1; i > current + 1; --i) {
+                if (LineOfSight(result[current].first, result[current].second, result[i].first, result[i].second)) {
+                    next = i;
+                    break;
+                }
+            }
+            smoothed.push_back(result[next]);
+            current = next;
+        }
+    }
+    
+    return smoothed;
 }
 
 inline bool GetNextPathPoint(float currentX, float currentY, 
@@ -198,7 +250,7 @@ inline bool GetNextPathPoint(float currentX, float currentY,
     
     float dx = targetX - currentX;
     float dy = targetY - currentY;
-    float dist = sqrtf(dx*dx + dy*dy);
+    float dist = std::sqrt(dx*dx + dy*dy);
     
     if (dist < 0.5f) {
         pathIndex++;
@@ -215,4 +267,3 @@ inline bool GetNextPathPoint(float currentX, float currentY,
 }
 
 #endif
-

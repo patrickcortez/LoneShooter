@@ -160,6 +160,9 @@ bool g_EnableVHS = true;
 bool g_PerformanceMode = false;
 bool g_EnableMouseLook = true; // Restored missing global
 bool pendingGameReset = false; // Global flag for deferred reset
+int g_PendingUpgrades = 0;
+bool g_LevelUpWindowOpen = false;
+float g_BonusSpeed = 0.0f;
 extern wchar_t g_GameVersion[32];
 
 // Forward declarations
@@ -1023,6 +1026,10 @@ struct Player {
     float angle;
     float pitch;
     int health;
+    int maxHealth = 100;
+    int level = 1;
+    int xp = 0;
+    int xpToNextLevel = 100;
 };
 
 struct Enemy {
@@ -1032,6 +1039,7 @@ struct Enemy {
     float speed;
     int spriteIndex;
     int health;
+    int maxHealth;
     float hurtTimer;
     bool isShooter;
     float fireTimer;
@@ -1050,6 +1058,18 @@ struct Enemy {
     NeuralAI::NeuralNet brain;
     bool hasNeuralBrain;
     bool isPhalanx;
+    bool isSpearGuy = false;
+    int spearState = 0; // 0: Move, 1: Idle, 2: Dash, 3: Block
+    float dashCooldown = 0.0f;
+    float blockCooldown = 0.0f;
+    float spearTimer = 0.0f;
+    int dashDir = 0;
+
+    bool isOfficer = false;
+    bool isDefectedOfficer = false;
+    bool isDefectedGunner = false;
+    int officerState = 0; // 0: Seek gunners, 1: Form Line, 2: Firing Volley, 3: Retreat
+    float officerCooldown = 0.0f;
 };
 
 enum MarshallCommand { CMD_NONE, CMD_RALLY, CMD_PINCER, CMD_PHALANX };
@@ -1060,6 +1080,13 @@ int militiaCount = 0;
 int militiaMaxCount = 0;
 float militiaMessageTimer = 0.0f;
 bool militiaBarActive = false;
+
+// Officer globals
+bool officerSpawned = false;
+bool defectedOfficerActive = false;
+float defectedRespawnTimer = 0.0f;
+float playerKnockbackX = 0.0f;
+float playerKnockbackY = 0.0f;
 
 struct EnemyBullet {
     float x, y;
@@ -1276,6 +1303,27 @@ struct Medkit {
 const float Medkit::RESPAWN_TIME = 10.0f;
 
 Player player = {10.0f, 32.0f, 0.0f, 0.0f, 100};
+
+void GivePlayerXP(int amount) {
+    player.xp += amount;
+    while (player.xp >= player.xpToNextLevel) {
+        player.xp -= player.xpToNextLevel;
+        player.level++;
+        player.xpToNextLevel += 20;
+        g_PendingUpgrades++;
+    }
+    if (g_PendingUpgrades > 0 && !g_LevelUpWindowOpen) {
+        g_LevelUpWindowOpen = true;
+    }
+}
+
+int GetEnemyXP(const Enemy& e) {
+    if (e.isMarshall) return 200;
+    if (e.isSpearGuy) return 15;
+    if (e.isShooter) return 10;
+    if (e.spriteIndex == 4) return 15;
+    return 5;
+}
 std::vector<Enemy> enemies;
 std::vector<Enemy> pendingEnemies;
 std::vector<TreeSprite> trees;
@@ -1581,7 +1629,16 @@ DWORD* cloudPixels = NULL;
 DWORD* gunPixels = NULL;
 DWORD* gunfirePixels = NULL;
 DWORD* bulletPixels = NULL;
+DWORD* playerBulletPixels = NULL;
+int playerBulletW = 0, playerBulletH = 0;
+DWORD* spearguyMovePixels = NULL; int spearguyMoveW = 0, spearguyMoveH = 0;
+DWORD* spearguyIdlePixels = NULL; int spearguyIdleW = 0, spearguyIdleH = 0;
+DWORD* spearguyDashPixels = NULL; int spearguyDashW = 0, spearguyDashH = 0;
+DWORD* spearguyBlockPixels = NULL; int spearguyBlockW = 0, spearguyBlockH = 0;
+DWORD* spearguyHurtPixels = NULL; int spearguyHurtW = 0, spearguyHurtH = 0;
 DWORD* healthbarPixels[11] = {NULL};
+DWORD* xpBarPixels[11] = {NULL};
+int xpBarW = 0, xpBarH = 0;
 int grassW = 0, grassH = 0;
 DWORD* enemyPixels[5] = {NULL};
 int enemyW[5] = {0};
@@ -1594,6 +1651,18 @@ DWORD* gunnerFiringPixels = NULL;
 int gunnerFiringW = 0, gunnerFiringH = 0;
 DWORD* gunnerHurtPixels = NULL;
 int gunnerHurtW = 0, gunnerHurtH = 0;
+
+DWORD* officerMovePixels = NULL; int officerMoveW = 0, officerMoveH = 0;
+DWORD* officerIdlePixels = NULL; int officerIdleW = 0, officerIdleH = 0;
+DWORD* officerHurtPixels = NULL; int officerHurtW = 0, officerHurtH = 0;
+DWORD* officerFirePixels = NULL; int officerFireW = 0, officerFireH = 0;
+
+DWORD* defectedMovingPixels = NULL; int defectedMovingW = 0, defectedMovingH = 0;
+DWORD* defectedIdlePixels = NULL; int defectedIdleW = 0, defectedIdleH = 0;
+DWORD* defectedFiringPixels = NULL; int defectedFiringW = 0, defectedFiringH = 0;
+
+DWORD* defectedGunnerPixels = NULL; int defectedGunnerW = 0, defectedGunnerH = 0;
+DWORD* defectedGunnerFiringPixels = NULL; int defectedGunnerFiringW = 0, defectedGunnerFiringH = 0;
 DWORD* grassPlantPixels = NULL;
 int grassPlantW = 0, grassPlantH = 0;
 DWORD* rockPixels[3] = {NULL};
@@ -2196,6 +2265,20 @@ void TryLoadAssets() {
     bulletPixels = LoadBMPPixels(path, &bulletW, &bulletH);
     if (!bulletPixels) { missingAssets.push_back(L"bullet.bmp"); if (errorPixels) { bulletPixels = errorPixels; bulletW = errorW; bulletH = errorH; } }
     
+    swprintf(path, MAX_PATH, L"%ls\\assets\\player-bullet.bmp", exePath);
+    playerBulletPixels = LoadBMPPixels(path, &playerBulletW, &playerBulletH);
+    if (!playerBulletPixels) { missingAssets.push_back(L"player-bullet.bmp"); if (errorPixels) { playerBulletPixels = errorPixels; playerBulletW = errorW; playerBulletH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\Spearguy\\spearguy-move.bmp", exePath);
+    spearguyMovePixels = LoadBMPPixels(path, &spearguyMoveW, &spearguyMoveH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\Spearguy\\spearguy-idle.bmp", exePath);
+    spearguyIdlePixels = LoadBMPPixels(path, &spearguyIdleW, &spearguyIdleH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\Spearguy\\spearguy-dashing.bmp", exePath);
+    spearguyDashPixels = LoadBMPPixels(path, &spearguyDashW, &spearguyDashH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\Spearguy\\spearguy-block.bmp", exePath);
+    spearguyBlockPixels = LoadBMPPixels(path, &spearguyBlockW, &spearguyBlockH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\Spearguy\\spearguy-hurt.bmp", exePath);
+    spearguyHurtPixels = LoadBMPPixels(path, &spearguyHurtW, &spearguyHurtH);
     for(int i=0; i<5; i++) {
         swprintf(path, MAX_PATH, L"%ls\\assets\\enemy%d.bmp", exePath, i+1);
         enemyPixels[i] = LoadBMPPixels(path, &enemyW[i], &enemyH[i]);
@@ -2213,6 +2296,43 @@ void TryLoadAssets() {
     swprintf(path, MAX_PATH, L"%ls\\assets\\gunner_firing.bmp", exePath);
     gunnerFiringPixels = LoadBMPPixels(path, &gunnerFiringW, &gunnerFiringH);
     if (!gunnerFiringPixels) { missingAssets.push_back(L"gunner_firing.bmp"); if (errorPixels) { gunnerFiringPixels = errorPixels; gunnerFiringW = errorW; gunnerFiringH = errorH; } }
+    
+    // Officer & Defected Assets
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\enemy\\officer-move.bmp", exePath);
+    officerMovePixels = LoadBMPPixels(path, &officerMoveW, &officerMoveH);
+    if (!officerMovePixels) { missingAssets.push_back(L"officer-move.bmp"); if (errorPixels) { officerMovePixels = errorPixels; officerMoveW = errorW; officerMoveH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\enemy\\officer-idle.bmp", exePath);
+    officerIdlePixels = LoadBMPPixels(path, &officerIdleW, &officerIdleH);
+    if (!officerIdlePixels) { missingAssets.push_back(L"officer-idle.bmp"); if (errorPixels) { officerIdlePixels = errorPixels; officerIdleW = errorW; officerIdleH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\enemy\\officer-hurt.bmp", exePath);
+    officerHurtPixels = LoadBMPPixels(path, &officerHurtW, &officerHurtH);
+    if (!officerHurtPixels) { missingAssets.push_back(L"officer-hurt.bmp"); if (errorPixels) { officerHurtPixels = errorPixels; officerHurtW = errorW; officerHurtH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\enemy\\officer-fire.bmp", exePath);
+    officerFirePixels = LoadBMPPixels(path, &officerFireW, &officerFireH);
+    if (!officerFirePixels) { missingAssets.push_back(L"officer-fire.bmp"); if (errorPixels) { officerFirePixels = errorPixels; officerFireW = errorW; officerFireH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\defected\\defected-moving.bmp", exePath);
+    defectedMovingPixels = LoadBMPPixels(path, &defectedMovingW, &defectedMovingH);
+    if (!defectedMovingPixels) { missingAssets.push_back(L"defected-moving.bmp"); if (errorPixels) { defectedMovingPixels = errorPixels; defectedMovingW = errorW; defectedMovingH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\defected\\defected-idle.bmp", exePath);
+    defectedIdlePixels = LoadBMPPixels(path, &defectedIdleW, &defectedIdleH);
+    if (!defectedIdlePixels) { missingAssets.push_back(L"defected-idle.bmp"); if (errorPixels) { defectedIdlePixels = errorPixels; defectedIdleW = errorW; defectedIdleH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\officer\\defected\\defected-firing.bmp", exePath);
+    defectedFiringPixels = LoadBMPPixels(path, &defectedFiringW, &defectedFiringH);
+    if (!defectedFiringPixels) { missingAssets.push_back(L"defected-firing.bmp"); if (errorPixels) { defectedFiringPixels = errorPixels; defectedFiringW = errorW; defectedFiringH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\defected\\gunner\\gunner-defected.bmp", exePath);
+    defectedGunnerPixels = LoadBMPPixels(path, &defectedGunnerW, &defectedGunnerH);
+    if (!defectedGunnerPixels) { missingAssets.push_back(L"gunner-defected.bmp"); if (errorPixels) { defectedGunnerPixels = errorPixels; defectedGunnerW = errorW; defectedGunnerH = errorH; } }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\defected\\gunner\\gunner-defected-firing.bmp", exePath);
+    defectedGunnerFiringPixels = LoadBMPPixels(path, &defectedGunnerFiringW, &defectedGunnerFiringH);
+    if (!defectedGunnerFiringPixels) { missingAssets.push_back(L"gunner-defected-firing.bmp"); if (errorPixels) { defectedGunnerFiringPixels = errorPixels; defectedGunnerFiringW = errorW; defectedGunnerFiringH = errorH; } }
     
     swprintf(path, MAX_PATH, L"%ls\\assets\\tree.bmp", exePath);
     treePixels = LoadBMPPixels(path, &treeW, &treeH);
@@ -2264,6 +2384,13 @@ void TryLoadAssets() {
         swprintf(path, MAX_PATH, L"%ls\\assets\\healthbar_UI\\%ls", exePath, healthbarNames[i]);
         healthbarPixels[i] = LoadBMPPixels(path, &healthbarW, &healthbarH);
         if (!healthbarPixels[i]) { missingAssets.push_back(healthbarNames[i]); if (errorPixels) { healthbarPixels[i] = errorPixels; healthbarW = errorW; healthbarH = errorH; } }
+    }
+    
+    const wchar_t* xpBarNames[] = {L"xp-0.bmp", L"xp-10.bmp", L"xp-20.bmp", L"xp-30.bmp", L"xp-40.bmp", L"xp-50.bmp", L"xp-60.bmp", L"xp-70.bmp", L"xp-80.bmp", L"xp-90.bmp", L"xp-100.bmp"};
+    for (int i = 0; i < 11; i++) {
+        swprintf(path, MAX_PATH, L"%ls\\assets\\player_sprite\\player-xp\\%ls", exePath, xpBarNames[i]);
+        xpBarPixels[i] = LoadBMPPixels(path, &xpBarW, &xpBarH);
+        if (!xpBarPixels[i]) { missingAssets.push_back(xpBarNames[i]); if (errorPixels) { xpBarPixels[i] = errorPixels; xpBarW = errorW; xpBarH = errorH; } }
     }
     
     swprintf(path, MAX_PATH, L"%ls\\assets\\spire\\spire_resting.bmp", exePath);
@@ -2724,7 +2851,7 @@ void UpdateHealingTower(float deltaTime) {
             
             if (distToPlayer < 8.0f) {
                 player.health += (int)(50 * deltaTime); 
-                if (player.health > 100) player.health = 100;
+                if (player.health > player.maxHealth) player.health = player.maxHealth;
                 healFlashTimer = 0.5f; 
             }
             
@@ -3899,12 +4026,29 @@ void RenderSprites() {
         }
     }
     
+    for (auto& b : bullets) {
+        if (b.active) {
+            float dx = b.x - player.x;
+            float dy = b.y - player.y;
+            float dist = sqrtf(dx*dx + dy*dy);
+            g_allSprites.push_back({b.x, b.y, dist, 22, 0.3f, 0, false, 0.0f, false});
+        }
+    }
+    
     for (auto& enemy : enemies) {
         if (enemy.active) {
             float dx = enemy.x - player.x;
             float dy = enemy.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            if (enemy.isMarshall) {
+            if (enemy.isDefectedOfficer) {
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 25, 1.0f, enemy.officerState, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
+            } else if (enemy.isOfficer) {
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 24, 1.0f, enemy.officerState, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
+            } else if (enemy.isDefectedGunner) {
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 26, 1.0f, 0, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
+            } else if (enemy.isSpearGuy) {
+                g_allSprites.push_back({enemy.x, enemy.y, dist, 23, 1.0f, enemy.spearState, (enemy.hurtTimer > 0), 0.0f, false});
+            } else if (enemy.isMarshall) {
                 g_allSprites.push_back({enemy.x, enemy.y, dist, 9, 2.5f, (enemy.hurtTimer > 0 ? 1 : 0), false, 0.0f, false});
             } else if (enemy.isShooter) {
                 g_allSprites.push_back({enemy.x, enemy.y, dist, 6, 1.0f, 0, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
@@ -4188,6 +4332,36 @@ void RenderSprites() {
              if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         } else if (sp.type == 21) { // Particles
              if (htParticlePixels) RenderSprite(htParticlePixels, htParticleW, htParticleH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 22) {
+             if (playerBulletPixels) RenderSprite(playerBulletPixels, playerBulletW, playerBulletH, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 23) {
+             DWORD* pix = spearguyMovePixels; int w = spearguyMoveW; int h = spearguyMoveH;
+             if (sp.isHurt) { pix = spearguyHurtPixels; w = spearguyHurtW; h = spearguyHurtH; }
+             else if (sp.variant == 1) { pix = spearguyIdlePixels; w = spearguyIdleW; h = spearguyIdleH; }
+             else if (sp.variant == 2) { pix = spearguyDashPixels; w = spearguyDashW; h = spearguyDashH; }
+             else if (sp.variant == 3) { pix = spearguyBlockPixels; w = spearguyBlockW; h = spearguyBlockH; }
+             if (!pix && sp.isHurt) { pix = spearguyMovePixels; w = spearguyMoveW; h = spearguyMoveH; }
+             if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 24) { // Officer
+             DWORD* pix = officerMovePixels; int w = officerMoveW; int h = officerMoveH;
+             if (sp.isHurt) { pix = officerHurtPixels; w = officerHurtW; h = officerHurtH; }
+             else if (sp.isFiring) { pix = officerFirePixels; w = officerFireW; h = officerFireH; }
+             else if (sp.variant == 1) { pix = officerIdlePixels; w = officerIdleW; h = officerIdleH; }
+             if (!pix && sp.isHurt) { pix = officerMovePixels; w = officerMoveW; h = officerMoveH; }
+             if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 25) { // Defected Officer
+             DWORD* pix = defectedMovingPixels; int w = defectedMovingW; int h = defectedMovingH;
+             if (sp.isHurt) { pix = officerHurtPixels; w = officerHurtW; h = officerHurtH; } // Uses officer hurt
+             else if (sp.isFiring) { pix = defectedFiringPixels; w = defectedFiringW; h = defectedFiringH; }
+             else if (sp.variant == 1) { pix = defectedIdlePixels; w = defectedIdleW; h = defectedIdleH; }
+             if (!pix && sp.isHurt) { pix = defectedMovingPixels; w = defectedMovingW; h = defectedMovingH; }
+             if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 26) { // Defected Gunner
+             DWORD* pix = defectedGunnerPixels; int w = defectedGunnerW; int h = defectedGunnerH;
+             if (sp.isHurt) { pix = gunnerHurtPixels; w = gunnerHurtW; h = gunnerHurtH; } // Uses gunner hurt
+             else if (sp.isFiring) { pix = defectedGunnerFiringPixels; w = defectedGunnerFiringW; h = defectedGunnerFiringH; }
+             if (!pix && sp.isHurt) { pix = defectedGunnerPixels; w = defectedGunnerW; h = defectedGunnerH; }
+             if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         }
     }
 }
@@ -4604,7 +4778,292 @@ void UpdateEnemies(float deltaTime) {
         float dy = player.y - enemy.y;
         float dist = sqrtf(dx*dx + dy*dy);
         
-        if (enemy.isShooter) {
+        if (enemy.isSpearGuy) {
+            if (enemy.dashCooldown > 0) enemy.dashCooldown -= deltaTime;
+            if (enemy.blockCooldown > 0) enemy.blockCooldown -= deltaTime;
+            
+            int nearbyMelee = 0;
+            float closestHordeX = 0, closestHordeY = 0;
+            float closestHordeDist = 99999.0f;
+            
+            for (auto& other : enemies) {
+                if (&other == &enemy || !other.active || other.isShooter || other.isSpearGuy) continue;
+                float ox = enemy.x - other.x;
+                float oy = enemy.y - other.y;
+                float odist = sqrtf(ox*ox + oy*oy);
+                if (odist < 10.0f) {
+                    nearbyMelee++;
+                }
+                if (odist < closestHordeDist) {
+                    closestHordeDist = odist;
+                    closestHordeX = other.x;
+                    closestHordeY = other.y;
+                }
+            }
+            
+            bool beingShotAt = false;
+            for (auto& b : bullets) {
+                if (!b.active) continue;
+                float bdx = b.x - enemy.x;
+                float bdy = b.y - enemy.y;
+                float bdist = sqrtf(bdx*bdx + bdy*bdy);
+                if (bdist < 10.0f) {
+                    float dot = (b.dirX * bdx) + (b.dirY * bdy);
+                    if (dot > 0) {
+                        beingShotAt = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (beingShotAt) {
+                if (enemy.dashCooldown <= 0) {
+                    enemy.spearState = 2; // Dash
+                    enemy.spearTimer = 0.3f; // 0.3 sec dash
+                    enemy.dashCooldown = 1.0f;
+                    enemy.dashDir = (rand() % 2 == 0) ? 1 : -1;
+                } else if (enemy.blockCooldown <= 0 && enemy.spearState != 2) {
+                    enemy.spearState = 3; // Block
+                    enemy.spearTimer = 0.5f;
+                    enemy.blockCooldown = 0.5f;
+                }
+            }
+            
+            if (enemy.spearState == 2) { // Dashing
+                enemy.spearTimer -= deltaTime;
+                float dashSpeed = 15.0f;
+                float ang = atan2f(dy, dx) + (enemy.dashDir * 3.14159f / 2.0f);
+                float moveX = cosf(ang) * dashSpeed * deltaTime;
+                float moveY = sinf(ang) * dashSpeed * deltaTime;
+                if (worldMap[(int)(enemy.x + moveX)][(int)enemy.y] == 0) {
+                    float pdx = (enemy.x + moveX) - player.x;
+                    float pdy = enemy.y - player.y;
+                    if (pdx*pdx + pdy*pdy >= 0.64f) enemy.x += moveX;
+                }
+                if (worldMap[(int)enemy.x][(int)(enemy.y + moveY)] == 0) {
+                    float pdx = enemy.x - player.x;
+                    float pdy = (enemy.y + moveY) - player.y;
+                    if (pdx*pdx + pdy*pdy >= 0.64f) enemy.y += moveY;
+                }
+                if (enemy.spearTimer <= 0) enemy.spearState = 0;
+            } else if (enemy.spearState == 3) { // Blocking
+                enemy.spearTimer -= deltaTime;
+                if (enemy.spearTimer <= 0) enemy.spearState = 0;
+            } else {
+                if (dist <= 2.0f) {
+                    enemy.spearState = 1; // Idle while attacking
+                    if (enemy.attackTimer <= 0) {
+                        if (!godMode) player.health -= 15; // Spear damage
+                        PlayPlayerHurtSound();
+                        playerHurtTimer = 0.5f;
+                        screenShakeTimer = 0.5f;
+                        enemy.attackTimer = 1.5f;
+                    }
+                } else if (nearbyMelee >= 3) {
+                    enemy.spearState = 0; // Move with horde
+                    // Always approach the player — use formation speed when close
+                    float rushSpeed = (dist > 5.0f) ? enemy.speed : enemy.speed * 1.3f;
+                    float moveX = (dx / dist) * rushSpeed * deltaTime;
+                    float moveY = (dy / dist) * rushSpeed * deltaTime;
+                    if (worldMap[(int)(enemy.x + moveX)][(int)enemy.y] == 0) enemy.x += moveX;
+                    if (worldMap[(int)enemy.x][(int)(enemy.y + moveY)] == 0) enemy.y += moveY;
+                } else {
+                    if (dist < 8.0f) {
+                        enemy.spearState = 0; // Dash towards player
+                        float rushSpeed = enemy.speed * 1.5f;
+                        float moveX = (dx / dist) * rushSpeed * deltaTime;
+                        float moveY = (dy / dist) * rushSpeed * deltaTime;
+                        if (worldMap[(int)(enemy.x + moveX)][(int)enemy.y] == 0) enemy.x += moveX;
+                        if (worldMap[(int)enemy.x][(int)(enemy.y + moveY)] == 0) enemy.y += moveY;
+                    } else {
+                        if (closestHordeDist < 9999.0f) {
+                            enemy.spearState = 0; // Move to horde
+                            float hdx = closestHordeX - enemy.x;
+                            float hdy = closestHordeY - enemy.y;
+                            if (closestHordeDist > 1.0f) {
+                                float moveX = (hdx / closestHordeDist) * enemy.speed * deltaTime;
+                                float moveY = (hdy / closestHordeDist) * enemy.speed * deltaTime;
+                                if (worldMap[(int)(enemy.x + moveX)][(int)enemy.y] == 0) enemy.x += moveX;
+                                if (worldMap[(int)enemy.x][(int)(enemy.y + moveY)] == 0) enemy.y += moveY;
+                            }
+                        } else {
+                            enemy.spearState = 1; // Idle
+                        }
+                    }
+                }
+            }
+            if (enemy.attackTimer > 0) enemy.attackTimer -= deltaTime;
+
+        } else if (enemy.isDefectedGunner) {
+            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+            float closestDist = 9999.0f;
+            Enemy* target = nullptr;
+            for (auto& e : enemies) {
+                if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
+                float edx = e.x - enemy.x; float edy = e.y - enemy.y;
+                float d = sqrtf(edx*edx + edy*edy);
+                if (d < closestDist) { closestDist = d; target = &e; }
+            }
+            if (target && closestDist < 15.0f) {
+                float edx = target->x - enemy.x; float edy = target->y - enemy.y;
+                if (closestDist > 6.0f) {
+                    enemy.x += (edx/closestDist)*enemy.speed*deltaTime;
+                    enemy.y += (edy/closestDist)*enemy.speed*deltaTime;
+                }
+                if (closestDist <= 12.0f && enemy.fireTimer <= 0) {
+                    float targetAngle = atan2f(edy, edx);
+                    Bullet b; b.x = enemy.x; b.y = enemy.y;
+                    b.dirX = cosf(targetAngle); b.dirY = sinf(targetAngle);
+                    b.active = true; b.speed = 10.0f; b.damage = 15;
+                    bullets.push_back(b);
+                    enemy.fireTimer = 2.0f;
+                    enemy.firingTimer = 0.2f;
+                    PlayGunSound(0);
+                }
+            } else {
+                if (dist > 5.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
+                }
+            }
+            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
+
+        } else if (enemy.isDefectedOfficer) {
+            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
+            
+            if (dist < 8.0f) {
+                // Buff player by regenerating health slowly (1 HP every second if below max)
+                if (enemy.healTimer <= 0 && player.health < player.maxHealth) {
+                    player.health += 1;
+                    enemy.healTimer = 1.0f;
+                } else if (enemy.healTimer > 0) {
+                    enemy.healTimer -= deltaTime;
+                }
+            }
+            
+            float closestDist = 9999.0f;
+            Enemy* target = nullptr;
+            for (auto& e : enemies) {
+                if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
+                float edx = e.x - enemy.x; float edy = e.y - enemy.y;
+                float d = sqrtf(edx*edx + edy*edy);
+                if (d < closestDist) { closestDist = d; target = &e; }
+            }
+            if (dist > 4.0f) {
+                enemy.x += (dx/dist)*enemy.speed*1.2f*deltaTime;
+                enemy.y += (dy/dist)*enemy.speed*1.2f*deltaTime;
+                enemy.officerState = 0;
+            } else {
+                enemy.officerState = 1;
+            }
+            
+            if (target && closestDist <= 12.0f && enemy.fireTimer <= 0) {
+                float edx = target->x - enemy.x; float edy = target->y - enemy.y;
+                float targetAngle = atan2f(edy, edx);
+                Bullet b; b.x = enemy.x; b.y = enemy.y;
+                b.dirX = cosf(targetAngle); b.dirY = sinf(targetAngle);
+                b.active = true; b.speed = 10.0f; b.damage = 15;
+                bullets.push_back(b);
+                enemy.fireTimer = 1.5f;
+                enemy.firingTimer = 0.2f;
+                PlayGunSound(0);
+            }
+
+        } else if (enemy.isOfficer) {
+            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
+            if (enemy.officerCooldown > 0) enemy.officerCooldown -= deltaTime;
+            
+            std::vector<Enemy*> gunners;
+            for (auto& e : enemies) {
+                if (e.active && e.isShooter && !e.isOfficer && !e.isDefectedGunner && !e.isDefectedOfficer) {
+                    gunners.push_back(&e);
+                }
+            }
+            
+            for (auto& e : enemies) {
+                if (e.active && !e.isShooter && !e.isMarshall && !e.isOfficer && !e.isDefectedOfficer && !e.isDefectedGunner) {
+                    float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
+                    if (d < 8.0f) {
+                        e.speed = 1.4f;
+                    }
+                }
+            }
+            
+            if (dist < 8.0f || gunners.size() < (size_t)(maxShooterSpawn * 0.2f)) {
+                enemy.officerState = 3;
+            } else {
+                enemy.officerState = 1;
+            }
+            
+            if (enemy.officerState == 3) {
+                float rx = -dx; float ry = -dy;
+                float moveSpeed = enemy.speed * 1.2f;
+                enemy.x += (rx/dist)*moveSpeed*deltaTime;
+                enemy.y += (ry/dist)*moveSpeed*deltaTime;
+                
+                if (enemy.officerCooldown <= 0 && gunners.size() < 4) {
+                    int lost = 4 - gunners.size();
+                    for(int i=0; i<lost; i++){
+                        Enemy shooter;
+                        shooter.x = enemy.x + (rand()%200 - 100)/100.0f; 
+                        shooter.y = enemy.y + (rand()%200 - 100)/100.0f;
+                        shooter.active = true; shooter.speed = 1.2f; shooter.spriteIndex = 0; shooter.health = 2;
+                        shooter.isShooter = true; shooter.fireTimer = 2.0f; shooter.hasNeuralBrain = true; NeuralAI::InheritBrain(shooter.brain);
+                        pendingEnemies.push_back(shooter);
+                    }
+                    enemy.officerCooldown = 20.0f;
+                }
+            } else if (enemy.officerState == 1) {
+                if (dist > 12.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
+                } else if (dist < 10.0f) {
+                    enemy.x -= (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y -= (dy/dist)*enemy.speed*deltaTime;
+                }
+                
+                float angleToPlayer = atan2f(-dy, -dx);
+                float lineAngle = angleToPlayer + 3.14159f/2.0f;
+                
+                int i = 0;
+                int count = gunners.size();
+                bool allReady = true;
+                for (auto* g : gunners) {
+                    float offset = (i - (count-1)/2.0f) * 1.5f;
+                    float tx = enemy.x + cosf(lineAngle) * offset;
+                    float ty = enemy.y + sinf(lineAngle) * offset;
+                    float gdx = tx - g->x; float gdy = ty - g->y;
+                    float gdist = sqrtf(gdx*gdx + gdy*gdy);
+                    if (gdist > 0.5f) {
+                        g->x += (gdx/gdist) * g->speed * deltaTime;
+                        g->y += (gdy/gdist) * g->speed * deltaTime;
+                        allReady = false;
+                    }
+                    g->fireTimer = 2.0f; 
+                    i++;
+                }
+                
+                if (allReady && enemy.fireTimer <= 0) {
+                    for (auto* g : gunners) {
+                        float targetAngle = atan2f(player.y - g->y, player.x - g->x);
+                        EnemyBullet eb; eb.x = g->x; eb.y = g->y;
+                        eb.dirX = cosf(targetAngle); eb.dirY = sinf(targetAngle);
+                        eb.active = true; eb.isLaser = false;
+                        enemyBullets.push_back(eb);
+                        g->firingTimer = 0.2f;
+                    }
+                    enemy.fireTimer = 3.0f;
+                    enemy.officerState = 2;
+                    PlayGunSound(0);
+                }
+            }
+        } else if (enemy.isShooter) {
+            if (officerSpawned) {
+                if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+                continue;
+            }
             if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
             
             int nearbyHordeCount = 0;
@@ -4881,17 +5340,50 @@ void UpdateEnemies(float deltaTime) {
             float neuralMoveBias = 1.0f;
             float neuralStrafe = 0;
             float neuralAggression = 0;
+            float neuralDodge = 0;
+            float neuralCoverSeek = 0;
+            float bulletDirX = 0, bulletDirY = 0;
+            bool bulletIncoming = false;
             
             if (enemy.hasNeuralBrain) {
                 float inputs[NeuralAI::INPUT_COUNT];
                 inputs[0] = dist / 30.0f;
-                inputs[1] = atan2f(dy, dx) / PI;
-                inputs[2] = player.angle / PI;
-                inputs[3] = (float)enemy.health / 4.0f;
-                inputs[4] = (float)nearbyCount / 10.0f;
-                inputs[5] = isMoving ? 1.0f : 0.0f;
-                inputs[6] = (float)currentWeapon / 2.0f;
-                inputs[7] = enemy.brain.survivalTime / 30.0f;
+                float angleToPlayer = atan2f(dy, dx);
+                inputs[1] = sinf(angleToPlayer);
+                inputs[2] = cosf(angleToPlayer);
+                inputs[3] = player.angle / PI;
+                inputs[4] = (float)enemy.health / 4.0f;
+                inputs[5] = (float)nearbyCount / 10.0f;
+                inputs[6] = isMoving ? 1.0f : 0.0f;
+                inputs[7] = (float)currentWeapon / 2.0f;
+                inputs[8] = enemy.brain.survivalTime / 30.0f;
+                
+                // Bullet detection logic for neural inputs
+                float closestBulletDist = 999.0f;
+                float closestBulletAngle = 0.0f;
+                for (auto& b : bullets) {
+                    if (!b.active) continue;
+                    float bdx = enemy.x - b.x;
+                    float bdy = enemy.y - b.y;
+                    float bdist = sqrtf(bdx*bdx + bdy*bdy);
+                    // Check if bullet is moving roughly towards enemy
+                    float dot = (b.dirX * bdx) + (b.dirY * bdy); 
+                    if (bdist < 7.0f && dot > 0 && bdist < closestBulletDist) {
+                        closestBulletDist = bdist;
+                        closestBulletAngle = atan2f(b.dirY, b.dirX);
+                        bulletDirX = b.dirX;
+                        bulletDirY = b.dirY;
+                        bulletIncoming = true;
+                    }
+                }
+                
+                inputs[9] = (closestBulletDist < 7.0f) ? (1.0f - closestBulletDist/7.0f) : 0.0f;
+                inputs[10] = (closestBulletDist < 7.0f) ? (closestBulletAngle / PI) : 0.0f;
+                
+                float checkX = enemy.x + cosf(angleToPlayer);
+                float checkY = enemy.y + sinf(angleToPlayer);
+                inputs[11] = Pathfinder::IsBlocked((int)checkX, (int)checkY) ? 1.0f : -1.0f;
+                inputs[12] = (float)NeuralAI::GetGeneration() / 50.0f;
                 
                 float outputs[NeuralAI::OUTPUT_COUNT];
                 enemy.brain.Evaluate(inputs, outputs);
@@ -4899,6 +5391,8 @@ void UpdateEnemies(float deltaTime) {
                 neuralMoveBias = outputs[0];
                 neuralStrafe = outputs[1];
                 neuralAggression = outputs[2];
+                neuralDodge = outputs[3];
+                neuralCoverSeek = outputs[4];
             }
             
             if (enemy.tacticState == 2) {
@@ -4932,28 +5426,27 @@ void UpdateEnemies(float deltaTime) {
                     moveY = (dy / dist) * (enemy.speed - 1.0f) * 1.5f * deltaTime;
                 }
             } else if (dist > 1.2f) {
-                if (neuralMoveBias < -0.3f && enemy.hasNeuralBrain) {
-                    float retreatDist = 20.0f;
-                    float retreatX = enemy.x - (dx/dist) * retreatDist;
-                    float retreatY = enemy.y - (dy/dist) * retreatDist;
-                    if (retreatX < 5.0f) retreatX = 5.0f;
-                    if (retreatX > MAP_WIDTH - 5.0f) retreatX = MAP_WIDTH - 5.0f;
-                    if (retreatY < 5.0f) retreatY = 5.0f;
-                    if (retreatY > MAP_HEIGHT - 5.0f) retreatY = MAP_HEIGHT - 5.0f;
-                    
-                    enemy.pathRecalcTimer -= deltaTime;
-                    if (enemy.pathRecalcTimer <= 0 || enemy.path.empty()) {
-                        enemy.path = Pathfinder::FindPath(enemy.x, enemy.y, retreatX, retreatY);
-                        enemy.pathIndex = 0;
-                        enemy.pathRecalcTimer = 0.5f;
+                // Always approach the player — no retreat
+                // neuralMoveBias modulates approach speed:
+                //   positive = aggressive faster approach
+                //   negative = cautious slower approach (0.5x to 1.0x speed)
+                float speedMod = 1.0f;
+                if (enemy.hasNeuralBrain) {
+                    if (neuralMoveBias >= 0.0f) {
+                        // Aggressive: up to 1.5x speed
+                        speedMod = 1.0f + neuralMoveBias * 0.5f;
+                    } else {
+                        // Cautious: 0.5x to 1.0x speed (never retreat)
+                        speedMod = 1.0f + neuralMoveBias * 0.5f;
+                        if (speedMod < 0.5f) speedMod = 0.5f;
                     }
-                } else {
-                    enemy.pathRecalcTimer -= deltaTime;
-                    if (enemy.pathRecalcTimer <= 0 || enemy.path.empty()) {
-                        enemy.path = Pathfinder::FindPath(enemy.x, enemy.y, player.x, player.y);
-                        enemy.pathIndex = 0;
-                        enemy.pathRecalcTimer = 0.5f;
-                    }
+                }
+                
+                enemy.pathRecalcTimer -= deltaTime;
+                if (enemy.pathRecalcTimer <= 0 || enemy.path.empty()) {
+                    enemy.path = Pathfinder::FindPath(enemy.x, enemy.y, player.x, player.y);
+                    enemy.pathIndex = 0;
+                    enemy.pathRecalcTimer = 0.5f;
                 }
                 
                 float pathTargetX, pathTargetY;
@@ -4962,12 +5455,12 @@ void UpdateEnemies(float deltaTime) {
                     float pdy = pathTargetY - enemy.y;
                     float pdist = sqrtf(pdx*pdx + pdy*pdy);
                     if (pdist > 0.1f) {
-                        moveX = (pdx / pdist) * enemy.speed * deltaTime;
-                        moveY = (pdy / pdist) * enemy.speed * deltaTime;
+                        moveX = (pdx / pdist) * enemy.speed * speedMod * deltaTime;
+                        moveY = (pdy / pdist) * enemy.speed * speedMod * deltaTime;
                     }
                 } else {
-                    moveX = (dx / dist) * enemy.speed * deltaTime;
-                    moveY = (dy / dist) * enemy.speed * deltaTime;
+                    moveX = (dx / dist) * enemy.speed * speedMod * deltaTime;
+                    moveY = (dy / dist) * enemy.speed * speedMod * deltaTime;
                 }
             }
             
@@ -4979,6 +5472,67 @@ void UpdateEnemies(float deltaTime) {
                 float strafeY = dx / (dist > 0.1f ? dist : 0.1f);
                 moveX += strafeX * neuralStrafe * enemy.speed * 0.5f * deltaTime;
                 moveY += strafeY * neuralStrafe * enemy.speed * 0.5f * deltaTime;
+            }
+            
+            if (enemy.hasNeuralBrain && bulletIncoming && fabsf(neuralDodge) > 0.2f) {
+                // Perpendicular to incoming bullet dir
+                float dodgeX = -bulletDirY;
+                float dodgeY = bulletDirX;
+                // Move out of bullet path with an enhanced burst of speed
+                moveX += dodgeX * neuralDodge * enemy.speed * 2.0f * deltaTime;
+                moveY += dodgeY * neuralDodge * enemy.speed * 2.0f * deltaTime;
+            }
+            
+            // Rock cover-seeking: when a bullet is incoming and coverSeek is active,
+            // find the nearest BigRock and bias movement to get behind it
+            if (enemy.hasNeuralBrain && bulletIncoming && neuralCoverSeek > 0.2f) {
+                int gx = (int)(enemy.x / GRID_CELL_SIZE);
+                int gy = (int)(enemy.y / GRID_CELL_SIZE);
+                float bestCoverDist = 999.0f;
+                float coverX = 0, coverY = 0;
+                bool foundCover = false;
+                
+                // Search current + adjacent grid cells for nearby BigRocks
+                int minCX = (gx > 0) ? gx - 1 : 0;
+                int maxCX = (gx < 16) ? gx + 1 : 16;
+                int minCY = (gy > 0) ? gy - 1 : 0;
+                int maxCY = (gy < 16) ? gy + 1 : 16;
+                
+                for (int cx = minCX; cx <= maxCX; cx++) {
+                    for (int cy = minCY; cy <= maxCY; cy++) {
+                        for (int idx : bigRockGrid[cx][cy]) {
+                            const BigRock& br = bigRocks[idx];
+                            float rdx = br.x - enemy.x;
+                            float rdy = br.y - enemy.y;
+                            float rockDist = sqrtf(rdx*rdx + rdy*rdy);
+                            
+                            if (rockDist < 8.0f && rockDist > 0.5f) {
+                                // Position behind rock relative to bullet direction
+                                // Move to the far side of the rock from the bullet source
+                                float behindX = br.x + bulletDirX * 1.5f;
+                                float behindY = br.y + bulletDirY * 1.5f;
+                                float cdx = behindX - enemy.x;
+                                float cdy = behindY - enemy.y;
+                                float coverDist = sqrtf(cdx*cdx + cdy*cdy);
+                                
+                                if (coverDist < bestCoverDist) {
+                                    bestCoverDist = coverDist;
+                                    coverX = cdx;
+                                    coverY = cdy;
+                                    foundCover = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (foundCover && bestCoverDist > 0.3f) {
+                    float coverNorm = sqrtf(coverX*coverX + coverY*coverY);
+                    if (coverNorm > 0.1f) {
+                        moveX += (coverX / coverNorm) * neuralCoverSeek * enemy.speed * 1.2f * deltaTime;
+                        moveY += (coverY / coverNorm) * neuralCoverSeek * enemy.speed * 1.2f * deltaTime;
+                    }
+                }
             }
             
             float newX = enemy.x + moveX;
@@ -4993,11 +5547,15 @@ void UpdateEnemies(float deltaTime) {
                      float dy = enemy.y - br.y;
                      if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
                  }
-                 // Healing Tower Collision
                  if (!collision && healingTower.state != TOWER_DORMANT) {
                      float htdx = newX - healingTower.x;
                      float htdy = enemy.y - healingTower.y;
                      if(htdx*htdx + htdy*htdy < 1.0f) { collision = true; }
+                 }
+                 if (!collision) {
+                     float pdx = newX - player.x;
+                     float pdy = enemy.y - player.y;
+                     if (pdx*pdx + pdy*pdy < 0.64f) { collision = true; }
                  }
                  if(!collision) enemy.x = newX;
             }
@@ -5011,22 +5569,55 @@ void UpdateEnemies(float deltaTime) {
                      float dy = newY - br.y;
                      if(dx*dx + dy*dy < 0.64f) { collision = true; break; }
                  }
-                 // Healing Tower Collision
                  if (!collision && healingTower.state != TOWER_DORMANT) {
                      float htdx = enemy.x - healingTower.x;
                      float htdy = newY - healingTower.y;
                      if(htdx*htdx + htdy*htdy < 1.0f) { collision = true; }
+                 }
+                 if (!collision) {
+                     float pdx = enemy.x - player.x;
+                     float pdy = newY - player.y;
+                     if (pdx*pdx + pdy*pdy < 0.64f) { collision = true; }
                  }
                  if(!collision) enemy.y = newY;
             }
             
             if (enemy.attackTimer > 0) enemy.attackTimer -= deltaTime;
             
+            if (enemy.spriteIndex == 4 && !enemy.isSpearGuy && !enemy.isOfficer && !enemy.isDefectedOfficer && !enemy.isDefectedGunner && !enemy.isMarshall) {
+                int nearbyCount = 0;
+                for (auto& other : enemies) {
+                    if (&other == &enemy || !other.active) continue;
+                    if (!other.isShooter && !other.isMarshall && !other.isOfficer && !other.isDefectedOfficer && !other.isDefectedGunner) {
+                        float d = sqrtf((enemy.x - other.x)*(enemy.x - other.x) + (enemy.y - other.y)*(enemy.y - other.y));
+                        if (d < 8.0f) nearbyCount++;
+                    }
+                }
+                if (nearbyCount >= 3) {
+                    if (enemy.maxHealth == 4) {
+                        enemy.maxHealth = 8;
+                        enemy.health *= 2;
+                    }
+                } else {
+                    if (enemy.maxHealth == 8) {
+                        enemy.maxHealth = 4;
+                        enemy.health /= 2;
+                        if (enemy.health < 1) enemy.health = 1;
+                    }
+                }
+            }
+
             float attackRange = 2.0f + (enemy.hasNeuralBrain ? neuralAggression * 0.5f : 0);
             if (dist < attackRange && enemy.attackTimer <= 0) {
                 if (!godMode) {
-                    if (enemy.spriteIndex == 4) player.health -= 10;
-                    else player.health -= 5;
+                    if (enemy.spriteIndex == 4 && !enemy.isSpearGuy && !enemy.isOfficer && !enemy.isDefectedOfficer && !enemy.isDefectedGunner) {
+                        player.health -= 10;
+                        // Apply knockback
+                        playerKnockbackX = -(dx / dist) * 8.0f; // 2-4 tiles worth of velocity
+                        playerKnockbackY = -(dy / dist) * 8.0f;
+                    } else {
+                        player.health -= 5;
+                    }
                 }
                 if (enemy.hasNeuralBrain) {
                     enemy.brain.damageDealt += (enemy.spriteIndex == 4) ? 10.0f : 5.0f;
@@ -5039,8 +5630,8 @@ void UpdateEnemies(float deltaTime) {
                     score = 0;
                     graves.push_back({player.x, player.y});
                     SaveGraves();
-                    player.health = 100;
-                    player.x = 10.0f;
+                    player.health = player.maxHealth;
+                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                     player.y = 32.0f;
                     gunUpgraded = false;
                     currentWeapon = 0;
@@ -5049,7 +5640,7 @@ void UpdateEnemies(float deltaTime) {
                     ammo = 8;
                     if (player.health <= 0) {
                         pendingGameReset = true;
-                        if (!godMode) player.health = 100; // Prevent further damage this frame
+                        if (!godMode) player.health = player.maxHealth; // Prevent further damage this frame
                         break;
                     }
                 }
@@ -5096,7 +5687,7 @@ eb.active = false; break; }
             
                 if (player.health <= 0) {
                     pendingGameReset = true;
-                    if (!godMode) player.health = 100; // Prevent further damage this frame
+                    if (!godMode) player.health = player.maxHealth; // Prevent further damage this frame
                     break;
                 }
             }
@@ -5132,6 +5723,7 @@ eb.active = false; break; }
             // Spawn melee up to current max
             if (meleeCount < maxMeleeSpawn) {
                 int meleeToSpawn = maxMeleeSpawn - meleeCount;
+                int spearGuysToSpawn = (meleeToSpawn >= 3) ? (meleeToSpawn / 3) : 0;
                 for (int i = 0; i < meleeToSpawn; i++) {
                     Enemy enemy;
                     do {
@@ -5143,12 +5735,19 @@ eb.active = false; break; }
                     enemy.speed = 1.5f + (rand() % 100) / 100.0f;
                     enemy.distance = 0;
                     enemy.spriteIndex = rand() % 5;
-                    if (enemy.spriteIndex == 4) { enemy.health = 4; } else { enemy.health = 1; }
+                    if (enemy.spriteIndex == 4) { enemy.health = 4; enemy.maxHealth = 4; } else { enemy.health = 1; enemy.maxHealth = 1; }
                     enemy.hurtTimer = 0;
                     enemy.isShooter = false;
                     enemy.fireTimer = 0;
                     enemy.firingTimer = 0;
                     enemy.isMarshall = false; // Fix uninitialized
+                    enemy.hasNeuralBrain = true;
+                    NeuralAI::InheritBrain(enemy.brain);
+                    if (i < spearGuysToSpawn) {
+                        enemy.isSpearGuy = true;
+                        enemy.health = 3; // Spearguy Hp: 3 bullet hits (or 15 dmg, health is per hit mostly? wait, 1 hit = 5 dmg, so maybe 3)
+                        enemy.speed = 2.0f; // fast
+                    }
                     pendingEnemies.push_back(enemy);
                 }
             }
@@ -5173,8 +5772,38 @@ eb.active = false; break; }
                     shooter.fireTimer = 2.0f;
                     shooter.firingTimer = 0;
                     shooter.isMarshall = false; // Fix uninitialized
+                    shooter.hasNeuralBrain = true;
+                    NeuralAI::InheritBrain(shooter.brain);
                     pendingEnemies.push_back(shooter);
                 }
+            }
+            
+            // Officer spawn logic
+            if (!officerSpawned && !defectedOfficerActive && shooterCount >= 4) {
+                Enemy officer;
+                do {
+                    officer.x = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
+                    officer.y = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
+                } while (worldMap[(int)officer.x][(int)officer.y] != 0 || 
+                         sqrtf((officer.x - player.x)*(officer.x - player.x) + (officer.y - player.y)*(officer.y - player.y)) < 15.0f);
+                officer.active = true;
+                officer.speed = 1.2f;
+                officer.distance = 0;
+                officer.spriteIndex = 0;
+                officer.health = 4;
+                officer.maxHealth = 4;
+                officer.hurtTimer = 0;
+                officer.isShooter = true; // They can shoot
+                officer.isOfficer = true;
+                officer.fireTimer = 2.0f;
+                officer.firingTimer = 0;
+                officer.isMarshall = false;
+                officer.hasNeuralBrain = true;
+                officer.officerState = 0;
+                officer.officerCooldown = 0.0f;
+                NeuralAI::InheritBrain(officer.brain);
+                pendingEnemies.push_back(officer);
+                officerSpawned = true;
             }
         }
     }
@@ -5212,7 +5841,7 @@ eb.active = false; break; }
                 enemy.speed = 1.5f + (rand() % 100) / 100.0f;
                 enemy.distance = 0;
                 enemy.spriteIndex = rand() % 5;
-                if (enemy.spriteIndex == 4) { enemy.health = 4; } else { enemy.health = 1; }
+                if (enemy.spriteIndex == 4) { enemy.health = 4; enemy.maxHealth = 4; } else { enemy.health = 1; enemy.maxHealth = 1; }
                 enemy.hurtTimer = 0;
                 enemy.isShooter = false;
                 enemy.fireTimer = 0;
@@ -5426,8 +6055,8 @@ eb.active = false; break; }
                                 PlayPlayerHurtSound();
                                 if(player.health <= 0) {
                                     score = 0;
-                                    player.health = 100;
-                                    player.x = 10.0f;
+                                    player.health = player.maxHealth;
+                                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                                     player.y = 32.0f;
                                     bossActive = false;
                                     preBossPhase = false;
@@ -5559,8 +6188,8 @@ eb.active = false; break; }
                                 score = 0;
                                 graves.push_back({player.x, player.y});
                                 SaveGraves();
-                                player.health = 100;
-                                player.x = 10.0f;
+                                player.health = player.maxHealth;
+                                player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                                 player.y = 32.0f;
                                 
                                 bossActive = false;
@@ -5643,8 +6272,8 @@ fb.active = false; break; }
                 score = 0;
                 graves.push_back({player.x, player.y});
                 SaveGraves();
-                player.health = 100;
-                player.x = 10.0f;
+                player.health = player.maxHealth;
+                player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                 player.y = 32.0f;
                 gunUpgraded = false;
                 currentWeapon = 0;
@@ -5832,7 +6461,7 @@ void ShootBullet() {
             float spread = (i - 2) * 0.05f; 
             b.dirX = cosf(player.angle + spread);
             b.dirY = sinf(player.angle + spread);
-            b.speed = 20.0f;
+            b.speed = 10.0f;
             b.active = true;
             b.damage = 1; // 1 damage per pellet
             b.startX = b.x;
@@ -5848,7 +6477,7 @@ void ShootBullet() {
         b.y = player.y;
         b.dirX = cosf(player.angle);
         b.dirY = sinf(player.angle);
-        b.speed = 20.0f;
+        b.speed = 10.0f;
         b.active = true;
         b.damage = 1; // Standard damage fixed to 1
         b.startX = b.x;
@@ -6026,6 +6655,7 @@ void UpdateBullets(float deltaTime) {
                         if (g.health <= 0) {
                             g.active = false;
                             score += 5;
+                            GivePlayerXP(20);
                             PlayScoreSound();
                         }
                     }
@@ -6050,6 +6680,7 @@ void UpdateBullets(float deltaTime) {
                             e.active = false;
                             if (e.isMarshall) { marshallKilled = true; bazookaUnlocked = true; upgradeMessageTimer = 3.0f; }
                             score++;
+                            GivePlayerXP(GetEnemyXP(e));
                             PlayScoreSound();
                             if (score > highScore) { highScore = score; SaveHighScore(); }
                             if (score >= 1000 && !bossActive && !preBossPhase) { preBossPhase = true; preBossTimer = 30.0f; }
@@ -6071,6 +6702,7 @@ void UpdateBullets(float deltaTime) {
                                 postBossPhase = true;
                                 musicRunning = false;
                                 score += 50;
+                                GivePlayerXP(1000);
                                 if (score > highScore) { highScore = score; SaveHighScore(); }
                                 for (auto& e : enemies) e.active = false;
                                 enemies.clear();
@@ -6181,6 +6813,7 @@ void UpdateBullets(float deltaTime) {
                 if (g.health <= 0) {
                      g.active = false;
                      score += 5;
+                     GivePlayerXP(20);
                      PlayScoreSound();
                 }
                 break;
@@ -6199,11 +6832,16 @@ void UpdateBullets(float deltaTime) {
             if (!enemy.active) continue;
             float edx = b.x - enemy.x;
             float edy = b.y - enemy.y;
-            if (sqrtf(edx*edx + edy*edy) < 1.0f) {
+            if (sqrtf(edx*edx + edy*edy) < 0.4f) {
                 b.active = false;
                 
+                if (enemy.isSpearGuy && enemy.spearState == 3) {
+                    PlayEnemyHurtSound();
+                    break;
+                }
+                
                 enemy.health -= b.damage;
-                if (enemy.spriteIndex == 4 || enemy.isShooter) enemy.hurtTimer = 0.5f;
+                if (enemy.spriteIndex == 4 || enemy.isShooter || enemy.isSpearGuy) enemy.hurtTimer = 0.5f;
                 
                 if (enemy.isMarshall) {
                     enemy.hurtTimer = 0.5f;
@@ -6214,12 +6852,19 @@ void UpdateBullets(float deltaTime) {
                 
                 if (enemy.health <= 0) {
                     enemy.active = false;
+                    if (enemy.isOfficer) {
+                        officerSpawned = false;
+                    }
+                    if (enemy.isDefectedOfficer) {
+                        defectedRespawnTimer = 10.0f;
+                    }
                     if (enemy.isMarshall) {
                         marshallKilled = true;
                         bazookaUnlocked = true;
                         upgradeMessageTimer = 3.0f;
                     }
                     score++;
+                    GivePlayerXP(GetEnemyXP(enemy));
                     PlayScoreSound();
                     
                     if (score == 50 && !gunUpgraded) {
@@ -6340,6 +6985,7 @@ void UpdateBullets(float deltaTime) {
                         postBossPhase = true;
                         musicRunning = false;
                         score += 50;
+                        GivePlayerXP(1000);
                         if (score > highScore) {
                             highScore = score;
                             SaveHighScore();
@@ -6593,6 +7239,7 @@ void UpdateParagons(float deltaTime) {
                     enemies[nearestEnemyIdx].active = false;
                     if (enemies[nearestEnemyIdx].isMarshall) marshallKilled = true;
                     score++;
+                    GivePlayerXP(GetEnemyXP(enemies[nearestEnemyIdx]));
                     PlayScoreSound();
                     if (score > highScore) { highScore = score; SaveHighScore(); }
                 }
@@ -7058,8 +7705,8 @@ void DrawMinimap(HDC hdc) {
     if (pendingGameReset) {
         pendingGameReset = false;
         score = 0;
-        player.health = 100;
-        player.x = 10.0f;
+        player.health = player.maxHealth;
+        player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
         player.y = 32.0f;
         
         // Reset weapon ammo to defaults
@@ -7093,7 +7740,7 @@ void DrawMinimap(HDC hdc) {
 void UpdatePlayer(float deltaTime) {
     bool isSprinting = keys[VK_LSHIFT] || keys[VK_SHIFT];
     float sprintSpeed = enragedMode ? 13.0f : 6.5f;
-    float baseSpeed = isSprinting ? sprintSpeed : 4.0f;
+    float baseSpeed = (isSprinting ? sprintSpeed : 4.0f) + g_BonusSpeed;
     float moveSpeed = baseSpeed * deltaTime;
     float rotSpeed = 2.5f * deltaTime;
     
@@ -7103,42 +7750,35 @@ void UpdatePlayer(float deltaTime) {
         return;
     }
     
+    auto CheckPlayerCollision = [&](float nx, float ny) -> bool {
+        if (worldMap[(int)nx][(int)ny] != 0) return true;
+        for(const auto& br : bigRocks) {
+            float dx = nx - br.x;
+            float dy = ny - br.y;
+            if(dx*dx + dy*dy < 0.64f) return true; 
+        }
+        for (const auto& e : enemies) {
+            if (!e.active) continue;
+            float edx = nx - e.x;
+            float edy = ny - e.y;
+            if (edx*edx + edy*edy < 0.64f) return true; // Respect enemy hitbox
+        }
+        float htdx = nx - healingTower.x;
+        float htdy = ny - healingTower.y;
+        if (healingTower.state != TOWER_DORMANT && htdx*htdx + htdy*htdy < 1.0f) return true;
+        return false;
+    };
+
     // Process input (movement, rotation)
     if (g_EnableMouseLook && !spectatorMode) {
         if (keys['W'] || keys[VK_UP]) {
             float newX = player.x + cosf(player.angle) * moveSpeed;
             float newY = player.y + sinf(player.angle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = newX - br.x;
-                     float dy = player.y - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = newX - healingTower.x;
-                     float htdy = player.y - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
-                 }
-            }
+            if (!CheckPlayerCollision(newX, player.y)) player.x = newX;
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-             if (worldMap[(int)player.x][(int)newY] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = player.x - br.x;
-                     float dy = newY - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = player.x - healingTower.x;
-                     float htdy = newY - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
-                 }
-            }
+            if (!CheckPlayerCollision(player.x, newY)) player.y = newY;
             isMoving = true;
         }
 
@@ -7146,36 +7786,10 @@ void UpdatePlayer(float deltaTime) {
             float newX = player.x - cosf(player.angle) * moveSpeed;
             float newY = player.y - sinf(player.angle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = newX - br.x;
-                     float dy = player.y - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = newX - healingTower.x;
-                     float htdy = player.y - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
-                 }
-            }
+            if (!CheckPlayerCollision(newX, player.y)) player.x = newX;
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = player.x - br.x;
-                     float dy = newY - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = player.x - healingTower.x;
-                     float htdy = newY - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
-                 }
-            }
+            if (!CheckPlayerCollision(player.x, newY)) player.y = newY;
             isMoving = true;
         }
 
@@ -7184,39 +7798,24 @@ void UpdatePlayer(float deltaTime) {
             float newX = player.x + cosf(strafeAngle) * moveSpeed;
             float newY = player.y + sinf(strafeAngle) * moveSpeed;
             if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = newX - br.x;
-                     float dy = player.y - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = newX - healingTower.x;
-                     float htdy = player.y - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
-                 }
-            }
+            if (!CheckPlayerCollision(newX, player.y)) player.x = newX;
             
             if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = player.x - br.x;
-                     float dy = newY - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = player.x - healingTower.x;
-                     float htdy = newY - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
-                 }
-            }
+            if (!CheckPlayerCollision(player.x, newY)) player.y = newY;
             isMoving = true;
         }
 
+        if (keys['D']) {
+            float strafeAngle = player.angle + PI / 2;
+            float newX = player.x + cosf(strafeAngle) * moveSpeed;
+            float newY = player.y + sinf(strafeAngle) * moveSpeed;
+            if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
+            if (!CheckPlayerCollision(newX, player.y)) player.x = newX;
+            
+            if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
+            if (!CheckPlayerCollision(player.x, newY)) player.y = newY;
+            isMoving = true;
+        }
     }
     
     if (spectatorMode) {
@@ -7249,44 +7848,6 @@ void UpdatePlayer(float deltaTime) {
         player.pitch = spectatorPitch;
         
         return; // Skip rest of player updates (reload, steps, healing)
-    } else {
-        if (keys['D']) {
-            float strafeAngle = player.angle + PI / 2;
-            float newX = player.x + cosf(strafeAngle) * moveSpeed;
-            float newY = player.y + sinf(strafeAngle) * moveSpeed;
-            if ((newX-32)*(newX-32) + (player.y-32)*(player.y-32) < 4.0f) newX = player.x;
-            if (worldMap[(int)newX][(int)player.y] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = newX - br.x;
-                     float dy = player.y - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = newX - healingTower.x;
-                     float htdy = player.y - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.x = newX;
-                 }
-            }
-            
-            if ((player.x-32)*(player.x-32) + (newY-32)*(newY-32) < 4.0f) newY = player.y;
-            if (worldMap[(int)player.x][(int)newY] == 0) {
-                 bool collision = false;
-                 for(const auto& br : bigRocks) {
-                     float dx = player.x - br.x;
-                     float dy = newY - br.y;
-                     if(dx*dx + dy*dy < 0.64f) { collision = true; break; } 
-
-                 }
-                 if(!collision) {
-                     float htdx = player.x - healingTower.x;
-                     float htdy = newY - healingTower.y;
-                     if (htdx*htdx + htdy*htdy >= 1.0f) player.y = newY;
-                 }
-            }
-            isMoving = true;
-        }
     }
     
     if (keys['R']) StartReload();
@@ -7310,7 +7871,7 @@ void UpdatePlayer(float deltaTime) {
             float dy = player.y - medkits[i].y;
             if (sqrtf(dx*dx + dy*dy) < 1.5f) {
                 player.health += Medkit::HEAL_AMOUNT;
-                if (player.health > 100) player.health = 100;
+                if (player.health > player.maxHealth) player.health = player.maxHealth;
                 medkits[i].active = false;
                 medkits[i].respawnTimer = Medkit::RESPAWN_TIME;
                 healFlashTimer = 1.0f;
@@ -7473,6 +8034,39 @@ void RenderGame(HDC hdc) {
         }
     }
     
+    int xpIndex = (player.xp * 10) / player.xpToNextLevel;
+    if (xpIndex > 10) xpIndex = 10;
+    if (xpIndex < 0) xpIndex = 0;
+    if (xpBarPixels[xpIndex] && xpBarW > 0 && xpBarH > 0) {
+        int xpScale = 8;
+        int xpDrawW = xpBarW * xpScale;
+        int xpDrawH = xpBarH * xpScale;
+        int xpX = 70; 
+        int xpY = SCREEN_HEIGHT - 160 - xpDrawH + 65; 
+        
+        for (int y = 0; y < xpDrawH; y++) {
+            int screenY = xpY + y;
+            if (screenY < 0 || screenY >= SCREEN_HEIGHT) continue;
+            int srcY = y * xpBarH / xpDrawH;
+            
+            for (int x = 0; x < xpDrawW; x++) {
+                int screenX = xpX + x;
+                if (screenX < 0 || screenX >= SCREEN_WIDTH) continue;
+                int srcX = x * xpBarW / xpDrawW;
+                
+                DWORD col = xpBarPixels[xpIndex][srcY * xpBarW + srcX];
+                int a = (col >> 24) & 0xFF;
+
+                if (a == 0) continue;
+                
+                int b = (col >> 0) & 0xFF;
+                int g = (col >> 8) & 0xFF;
+                int r = (col >> 16) & 0xFF;
+                renderBuffer[screenY * SCREEN_WIDTH + screenX] = MakeColor(r, g, b);
+            }
+        }
+    }
+    
     DrawCompass(hdc);
     
     memcpy(backBufferPixels, renderBuffer, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(DWORD));
@@ -7560,6 +8154,96 @@ void RenderGame(HDC hdc) {
         TextOutW(backBufferDC, sx, sy, scoreMsg, (int)wcslen(scoreMsg));
         
         SelectObject(backBufferDC, hOldFont);
+    }
+    
+    {
+        wchar_t levelText[64];
+        swprintf(levelText, 64, L"Level: %d", player.level);
+        HFONT hLvlFont = CreateFontW(32, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Fixedsys");
+        HFONT hOldFont = (HFONT)SelectObject(backBufferDC, hLvlFont);
+        SetBkMode(backBufferDC, TRANSPARENT);
+        SetTextColor(backBufferDC, RGB(255, 255, 0));
+        SIZE size;
+        GetTextExtentPoint32W(backBufferDC, levelText, (int)wcslen(levelText), &size);
+        TextOutW(backBufferDC, (SCREEN_WIDTH - size.cx) / 2, SCREEN_HEIGHT - 60, levelText, (int)wcslen(levelText));
+        SelectObject(backBufferDC, hOldFont);
+        DeleteObject(hLvlFont);
+    }
+    
+    if (g_LevelUpWindowOpen) {
+        int boxW = 150;
+        int boxH = 60;
+        int gap = 20;
+        int totalW = 3 * boxW + 2 * gap;
+        int startX = SCREEN_WIDTH / 2 - totalW / 2;
+        int y = SCREEN_HEIGHT / 2 - boxH / 2;
+        
+        HBRUSH bgBrush = CreateSolidBrush(RGB(50, 50, 50));
+        HBRUSH btnBrush = CreateSolidBrush(RGB(100, 100, 100));
+        HPEN borderPen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+        
+        HBRUSH oldBrush = (HBRUSH)SelectObject(backBufferDC, bgBrush);
+        HPEN oldPen = (HPEN)SelectObject(backBufferDC, borderPen);
+        
+        RECT windowRect = {startX - 20, y - 60, startX + totalW + 20, y + boxH + 20};
+        FillRect(backBufferDC, &windowRect, bgBrush);
+        
+        SelectObject(backBufferDC, btnBrush);
+        
+        RECT speedBtn = {startX, y, startX + boxW, y + boxH};
+        FillRect(backBufferDC, &speedBtn, btnBrush);
+        
+        RECT healthBtn = {startX + boxW + gap, y, startX + 2*boxW + gap, y + boxH};
+        FillRect(backBufferDC, &healthBtn, btnBrush);
+        
+        RECT damageBtn = {startX + 2*boxW + 2*gap, y, startX + 3*boxW + 2*gap, y + boxH};
+        FillRect(backBufferDC, &damageBtn, btnBrush);
+        
+        HFONT hFont = CreateFontW(24, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Fixedsys");
+        HFONT oldFont = (HFONT)SelectObject(backBufferDC, hFont);
+        SetBkMode(backBufferDC, TRANSPARENT);
+        SetTextColor(backBufferDC, RGB(255, 255, 255));
+        
+        const wchar_t* title = L"LEVEL UP! CHOOSE AN UPGRADE";
+        SIZE tSize;
+        GetTextExtentPoint32W(backBufferDC, title, (int)wcslen(title), &tSize);
+        TextOutW(backBufferDC, (SCREEN_WIDTH - tSize.cx) / 2, y - 45, title, (int)wcslen(title));
+        
+        const wchar_t* spd = L"+1 Speed";
+        const wchar_t* hp = L"+10 Health";
+        const wchar_t* dmg = L"+1 Damage";
+        
+        SIZE sSize, hSize, dSize;
+        GetTextExtentPoint32W(backBufferDC, spd, (int)wcslen(spd), &sSize);
+        GetTextExtentPoint32W(backBufferDC, hp, (int)wcslen(hp), &hSize);
+        GetTextExtentPoint32W(backBufferDC, dmg, (int)wcslen(dmg), &dSize);
+        
+        TextOutW(backBufferDC, speedBtn.left + (boxW - sSize.cx)/2, speedBtn.top + (boxH - sSize.cy)/2, spd, (int)wcslen(spd));
+        TextOutW(backBufferDC, healthBtn.left + (boxW - hSize.cx)/2, healthBtn.top + (boxH - hSize.cy)/2, hp, (int)wcslen(hp));
+        TextOutW(backBufferDC, damageBtn.left + (boxW - dSize.cx)/2, damageBtn.top + (boxH - dSize.cy)/2, dmg, (int)wcslen(dmg));
+        
+        SelectObject(backBufferDC, oldFont);
+        DeleteObject(hFont);
+        SelectObject(backBufferDC, oldBrush);
+        SelectObject(backBufferDC, oldPen);
+        DeleteObject(bgBrush);
+        DeleteObject(btnBrush);
+        DeleteObject(borderPen);
+        
+        // Draw a custom software cursor
+        POINT pt;
+        if (GetCursorPos(&pt) && ScreenToClient(hMainWnd, &pt)) {
+            HPEN cursorPen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+            HPEN oldCPen = (HPEN)SelectObject(backBufferDC, cursorPen);
+            MoveToEx(backBufferDC, pt.x, pt.y, NULL);
+            LineTo(backBufferDC, pt.x + 15, pt.y + 10);
+            MoveToEx(backBufferDC, pt.x, pt.y, NULL);
+            LineTo(backBufferDC, pt.x + 10, pt.y + 15);
+            MoveToEx(backBufferDC, pt.x, pt.y, NULL);
+            LineTo(backBufferDC, pt.x + 10, pt.y + 10);
+            SelectObject(backBufferDC, oldCPen);
+            DeleteObject(cursorPen);
+        }
     }
 
     memcpy(renderBuffer, backBufferPixels, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(DWORD));
@@ -8068,6 +8752,8 @@ void RenderGame(HDC hdc) {
         DeleteObject(hErrFont);
     }
     
+    // UI drawing moved to backBufferDC
+    
     BitBlt(hdc, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, g_renderDC, 0, 0, SRCCOPY);
 }
 
@@ -8337,6 +9023,46 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         case WM_LBUTTONDOWN: {
             if (consoleActive) return 0;
+            if (g_LevelUpWindowOpen) {
+                int mx = LOWORD(lParam);
+                int my = HIWORD(lParam);
+                
+                int boxW = 150;
+                int boxH = 60;
+                int gap = 20;
+                int totalW = 3 * boxW + 2 * gap;
+                int startX = SCREEN_WIDTH / 2 - totalW / 2;
+                int y = SCREEN_HEIGHT / 2 - boxH / 2;
+                
+                RECT speedBtn = {startX, y, startX + boxW, y + boxH};
+                RECT healthBtn = {startX + boxW + gap, y, startX + 2*boxW + gap, y + boxH};
+                RECT damageBtn = {startX + 2*boxW + 2*gap, y, startX + 3*boxW + 2*gap, y + boxH};
+                
+                bool clicked = false;
+                if (mx >= speedBtn.left && mx <= speedBtn.right && my >= speedBtn.top && my <= speedBtn.bottom) {
+                    g_BonusSpeed += 1.0f;
+                    clicked = true;
+                } else if (mx >= healthBtn.left && mx <= healthBtn.right && my >= healthBtn.top && my <= healthBtn.bottom) {
+                    player.maxHealth += 1;
+                    player.health += 1;
+                    clicked = true;
+                } else if (mx >= damageBtn.left && mx <= damageBtn.right && my >= damageBtn.top && my <= damageBtn.bottom) {
+                    extern int playerDamage;
+                    playerDamage += 1;
+                    clicked = true;
+                }
+                
+                if (clicked) {
+                    g_PendingUpgrades--;
+                    if (g_PendingUpgrades <= 0) {
+                        g_LevelUpWindowOpen = false;
+                        POINT center = {SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2};
+                        ClientToScreen(hwnd, &center);
+                        SetCursorPos(center.x, center.y);
+                    }
+                }
+                return 0;
+            }
             if (victoryScreen) {
                 int mx = LOWORD(lParam);
                 int my = HIWORD(lParam);
@@ -8352,8 +9078,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     phase2Active = false;
                     enragedMode = false;
                     score = 0;
-                    player.health = 100;
-                    player.x = 10.0f;
+                    player.health = player.maxHealth;
+                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                     player.y = 32.0f;
                     player.angle = 0.0f;
                     // Reset weapon ammo to defaults
@@ -8400,7 +9126,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         case WM_MOUSEMOVE: {
-            if (consoleActive || victoryScreen) return 0;
+            if (consoleActive || victoryScreen || g_LevelUpWindowOpen) return 0;
             
             static int lastMouseX = SCREEN_WIDTH / 2;
             int mx = LOWORD(lParam);
@@ -8448,6 +9174,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (clawActivePixels) delete[] clawActivePixels;
             if (gunnerPixels) delete[] gunnerPixels;
             if (gunnerFiringPixels) delete[] gunnerFiringPixels;
+            if (officerMovePixels) delete[] officerMovePixels;
+            if (officerIdlePixels) delete[] officerIdlePixels;
+            if (officerHurtPixels) delete[] officerHurtPixels;
+            if (officerFirePixels) delete[] officerFirePixels;
+            if (defectedMovingPixels) delete[] defectedMovingPixels;
+            if (defectedIdlePixels) delete[] defectedIdlePixels;
+            if (defectedFiringPixels) delete[] defectedFiringPixels;
+            if (defectedGunnerPixels) delete[] defectedGunnerPixels;
+            if (defectedGunnerFiringPixels) delete[] defectedGunnerFiringPixels;
             for (int i = 0; i < 11; i++) if (healthbarPixels[i]) delete[] healthbarPixels[i];
             CleanupThreadPool();
             PostQuitMessage(0);
@@ -8596,6 +9331,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         float deltaTime = (float)elapsed;
         
         if (!spectatorMode) {
+            if (defectedRespawnTimer > 0) {
+                defectedRespawnTimer -= deltaTime;
+                if (defectedRespawnTimer <= 0 && marshallSpawned) {
+                    Enemy defected;
+                    defected.x = player.x + 2.0f;
+                    defected.y = player.y + 2.0f;
+                    defected.active = true;
+                    defected.speed = 1.2f;
+                    defected.distance = 0;
+                    defected.spriteIndex = 0;
+                    defected.health = 4;
+                    defected.maxHealth = 4;
+                    defected.hurtTimer = 0;
+                    defected.isShooter = true;
+                    defected.isOfficer = false;
+                    defected.isDefectedOfficer = true;
+                    defected.fireTimer = 2.0f;
+                    defected.firingTimer = 0;
+                    defected.isMarshall = false;
+                    defected.hasNeuralBrain = true;
+                    defected.officerState = 0;
+                    defected.officerCooldown = 0.0f;
+                    NeuralAI::InheritBrain(defected.brain);
+                    pendingEnemies.push_back(defected);
+                    defectedOfficerActive = true;
+                }
+            }
             if (scoreTimer > 0) scoreTimer -= deltaTime;
             if (screenShakeTimer > 0) screenShakeTimer -= deltaTime;
             if (errorTimer > 0) errorTimer -= deltaTime;
@@ -8621,15 +9383,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             timeAccum = 0;
         }
         
-        UpdatePlayer(deltaTime);
-        UpdateHealingTower(deltaTime);
-        
-        if (!spectatorMode) {
-            UpdateEnemies(deltaTime);
-            UpdateClouds(deltaTime);
-            UpdateGun(deltaTime);
-            UpdateBullets(deltaTime);
-            UpdateParagons(deltaTime);
+        if (!g_LevelUpWindowOpen) {
+            UpdatePlayer(deltaTime);
+            UpdateHealingTower(deltaTime);
+            
+            if (!spectatorMode) {
+                UpdateEnemies(deltaTime);
+                UpdateClouds(deltaTime);
+                UpdateGun(deltaTime);
+                UpdateBullets(deltaTime);
+                UpdateParagons(deltaTime);
+            }
         }
         
         HDC hdc = GetDC(hMainWnd);
