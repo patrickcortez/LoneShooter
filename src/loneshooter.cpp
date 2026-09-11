@@ -1627,6 +1627,75 @@ HDC g_renderDC = NULL;
 HBITMAP g_renderBitmap = NULL;
 HBITMAP g_renderOldBitmap = NULL;
 
+// --- UI System ---
+DWORD* uiWindowPixels = nullptr; int uiWindowW = 0, uiWindowH = 0;
+DWORD* uiButtonPixels = nullptr; int uiButtonW = 0, uiButtonH = 0;
+DWORD* uiButtonHoverPixels = nullptr; int uiButtonHoverW = 0, uiButtonHoverH = 0;
+DWORD* uiButtonPressedPixels = nullptr; int uiButtonPressedW = 0, uiButtonPressedH = 0;
+
+struct UIState {
+    int mouseX = 0;
+    int mouseY = 0;
+    bool mouseDown = false;
+    bool mouseReleased = false;
+};
+UIState g_ui;
+
+void DrawUI9Slice(DWORD* dest, int destW, int destH, DWORD* src, int srcW, int srcH, int dx, int dy, int dw, int dh, int cornerSize) {
+    if (!src || srcW <= 0 || srcH <= 0 || !dest) return;
+    for (int y = 0; y < dh; y++) {
+        int dstY = dy + y;
+        if (dstY < 0 || dstY >= destH) continue;
+        
+        int sy;
+        if (y < cornerSize) sy = y;
+        else if (y >= dh - cornerSize) sy = srcH - (dh - y);
+        else sy = cornerSize + (y - cornerSize) * (srcH - 2 * cornerSize) / (dh - 2 * cornerSize);
+        if (sy < 0) sy = 0; if (sy >= srcH) sy = srcH - 1;
+        
+        for (int x = 0; x < dw; x++) {
+            int dstX = dx + x;
+            if (dstX < 0 || dstX >= destW) continue;
+            
+            int sx;
+            if (x < cornerSize) sx = x;
+            else if (x >= dw - cornerSize) sx = srcW - (dw - x);
+            else sx = cornerSize + (x - cornerSize) * (srcW - 2 * cornerSize) / (dw - 2 * cornerSize);
+            if (sx < 0) sx = 0; if (sx >= srcW) sx = srcW - 1;
+            
+            DWORD col = src[sy * srcW + sx];
+            if ((col & 0x00FFFFFF) != 0x00FF00FF) {
+                dest[dstY * destW + dstX] = col;
+            }
+        }
+    }
+}
+
+bool DoUIButton(int x, int y, int w, int h) {
+    bool hovered = (g_ui.mouseX >= x && g_ui.mouseX <= x + w && g_ui.mouseY >= y && g_ui.mouseY <= y + h);
+    bool clicked = false;
+    
+    DWORD* tex = uiButtonPixels;
+    int texW = uiButtonW, texH = uiButtonH;
+    
+    if (hovered) {
+        if (g_ui.mouseDown) {
+            tex = uiButtonPressedPixels;
+            texW = uiButtonPressedW; texH = uiButtonPressedH;
+        } else {
+            tex = uiButtonHoverPixels;
+            texW = uiButtonHoverW; texH = uiButtonHoverH;
+            if (g_ui.mouseReleased) {
+                clicked = true;
+            }
+        }
+    }
+    
+    DrawUI9Slice(backBufferPixels, SCREEN_WIDTH, SCREEN_HEIGHT, tex, texW, texH, x, y, w, h, 4);
+    return clicked;
+}
+
+
 DWORD* grassPixels = NULL;
 DWORD* npcPixels = NULL;
 
@@ -2198,23 +2267,54 @@ void FinalizePostProcess(HDC memDC) {
 bool keys[256] = {false};
 wchar_t loadStatus[256] = L"Loading...";
 
-bool CheckClawCollision(float x, float y) {
+bool IsPositionColliding(float x, float y, float radius) {
+    if (x - radius < 0 || x + radius >= MAP_WIDTH || y - radius < 0 || y + radius >= MAP_HEIGHT) return true;
+
+    int minX = (int)std::floor(x - radius);
+    int maxX = (int)std::floor(x + radius);
+    int minY = (int)std::floor(y - radius);
+    int maxY = (int)std::floor(y + radius);
+
+    for (int ix = minX; ix <= maxX; ix++) {
+        for (int iy = minY; iy <= maxY; iy++) {
+            if (ix >= 0 && ix < MAP_WIDTH && iy >= 0 && iy < MAP_HEIGHT) {
+                if (worldMap[ix][iy] != 0) {
+                    float testX = x;
+                    float testY = y;
+                    if (x < ix) testX = ix; else if (x > ix + 1) testX = ix + 1;
+                    if (y < iy) testY = iy; else if (y > iy + 1) testY = iy + 1;
+                    float dx = x - testX;
+                    float dy = y - testY;
+                    if (dx * dx + dy * dy < radius * radius) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
     for (int i = 0; i < 6; i++) {
         if (claws[i].state == CLAW_PH2_ANCHORED) {
             float dx = x - claws[i].x;
             float dy = y - claws[i].y;
-            if (dx*dx + dy*dy < 2.25f) return true;
+            float totalRadius = 1.5f + radius;
+            if (dx * dx + dy * dy < totalRadius * totalRadius) return true;
         }
     }
     
-    // Check Big Rocks
-    for(const auto& br : bigRocks) {
+    for (const auto& br : bigRocks) {
         float dx = x - br.x;
         float dy = y - br.y;
-        if (dx*dx + dy*dy < 2.25f) return true; 
+        float totalRadius = br.radius + radius;
+        if (dx * dx + dy * dy < totalRadius * totalRadius) return true;
     }
 
-    
+    // Center spire is always present
+    float dx = x - 32.0f;
+    float dy = y - 32.0f;
+    float totalRadius = 3.0f + radius;
+    if (dx * dx + dy * dy < totalRadius * totalRadius) return true;
+
     return false;
 }
 
@@ -2262,7 +2362,16 @@ void TryLoadAssets() {
     swprintf(path, MAX_PATH, L"%ls\\assets\\error.bmp", exePath);
     errorPixels = LoadBMPPixels(path, &errorW, &errorH);
     
-    swprintf(path, MAX_PATH, L"%ls\\assets\\grass.bmp", exePath);
+    
+    swprintf(path, MAX_PATH, L"%ls\\assets\\UI\\window.bmp", exePath);
+    uiWindowPixels = LoadBMPPixels(path, &uiWindowW, &uiWindowH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\UI\\button.bmp", exePath);
+    uiButtonPixels = LoadBMPPixels(path, &uiButtonW, &uiButtonH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\UI\\button-hover.bmp", exePath);
+    uiButtonHoverPixels = LoadBMPPixels(path, &uiButtonHoverW, &uiButtonHoverH);
+    swprintf(path, MAX_PATH, L"%ls\\assets\\UI\\button-pressed.bmp", exePath);
+    uiButtonPressedPixels = LoadBMPPixels(path, &uiButtonPressedW, &uiButtonPressedH);
+swprintf(path, MAX_PATH, L"%ls\\assets\\grass.bmp", exePath);
     grassPixels = LoadBMPPixels(path, &grassW, &grassH);
     if (!grassPixels) { 
         missingAssets.push_back(L"grass.bmp");
@@ -2898,7 +3007,7 @@ void SpawnMedkit() {
         do {
             medkits[i].x = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
             medkits[i].y = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
-        } while (worldMap[(int)medkits[i].x][(int)medkits[i].y] != 0 || 
+        } while (IsPositionColliding(medkits[i].x, medkits[i].y, 0.4f) || 
                  sqrtf((medkits[i].x - 32)*(medkits[i].x - 32) + (medkits[i].y - 32)*(medkits[i].y - 32)) < 5.0f);
         medkits[i].active = true;
         medkits[i].respawnTimer = 0;
@@ -2932,18 +3041,8 @@ void SpawnEnemies() {
             enemy.x = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
             enemy.y = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
             
-            bool insideRock = false;
-            for(const auto& br : bigRocks) {
-                float dx = enemy.x - br.x;
-                float dy = enemy.y - br.y;
-                if (dx*dx + dy*dy < (br.radius + 1.0f)*(br.radius + 1.0f)) { 
-                    insideRock = true; 
-                    break;
-                }
-            }
-            
-            if (!insideRock && worldMap[(int)enemy.x][(int)enemy.y] == 0 && 
-                sqrtf((enemy.x - player.x)*(enemy.x - player.x) + (enemy.y - player.y)*(enemy.y - player.y)) >= 10.0f) {
+            float distToPlayer = sqrtf((enemy.x - player.x)*(enemy.x - player.x) + (enemy.y - player.y)*(enemy.y - player.y));
+            if (!IsPositionColliding(enemy.x, enemy.y, 0.5f) && distToPlayer >= 10.0f) {
                 validSpawn = true;
             }
         } while (!validSpawn);
@@ -4558,10 +4657,10 @@ void UpdateEnemies(float deltaTime) {
                          float nextY = enemy.y + my;
                          float cdx = nextX - 32.0f;
                          float cdy = nextY - 32.0f;
-                         if (nextX >= 7.0f && nextX <= MAP_WIDTH - 7.0f && worldMap[(int)nextX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(nextX, enemy.y)) enemy.x = nextX;
+                         if (nextX >= 7.0f && nextX <= MAP_WIDTH - 7.0f && worldMap[(int)nextX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(nextX, enemy.y, 0.4f)) enemy.x = nextX;
                          cdx = enemy.x - 32.0f;
                          cdy = nextY - 32.0f;
-                         if (nextY >= 7.0f && nextY <= MAP_HEIGHT - 7.0f && worldMap[(int)enemy.x][(int)nextY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, nextY)) enemy.y = nextY;
+                         if (nextY >= 7.0f && nextY <= MAP_HEIGHT - 7.0f && worldMap[(int)enemy.x][(int)nextY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(enemy.x, nextY, 0.4f)) enemy.y = nextY;
                      }
                  } else {
                      float mx = (dx/dist) * retreatSpeed * deltaTime;
@@ -4570,10 +4669,10 @@ void UpdateEnemies(float deltaTime) {
                      float nextY = enemy.y + my;
                      float cdx = nextX - 32.0f;
                      float cdy = nextY - 32.0f;
-                     if (nextX >= 7.0f && nextX <= MAP_WIDTH - 7.0f && worldMap[(int)nextX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(nextX, enemy.y)) enemy.x = nextX;
+                     if (nextX >= 7.0f && nextX <= MAP_WIDTH - 7.0f && worldMap[(int)nextX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(nextX, enemy.y, 0.4f)) enemy.x = nextX;
                      cdx = enemy.x - 32.0f;
                      cdy = nextY - 32.0f;
-                     if (nextY >= 7.0f && nextY <= MAP_HEIGHT - 7.0f && worldMap[(int)enemy.x][(int)nextY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, nextY)) enemy.y = nextY;
+                     if (nextY >= 7.0f && nextY <= MAP_HEIGHT - 7.0f && worldMap[(int)enemy.x][(int)nextY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(enemy.x, nextY, 0.4f)) enemy.y = nextY;
                  }
                  
                  enemy.healTimer += deltaTime;
@@ -4705,7 +4804,7 @@ void UpdateEnemies(float deltaTime) {
                              float my = (pdy / pdist) * chaseSpeed * deltaTime;
                              float cdx = (enemy.x + mx) - 32.0f;
                              float cdy = (enemy.y + my) - 32.0f;
-                             if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x + mx, enemy.y)) {
+                             if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding((enemy.x + mx), enemy.y, 0.4f)) {
                                  bool collision = false;
                                  for(const auto& br : bigRocks) {
                                      float dx = (enemy.x + mx) - br.x;
@@ -4716,7 +4815,7 @@ void UpdateEnemies(float deltaTime) {
                              }
                              cdx = enemy.x - 32.0f;
                              cdy = (enemy.y + my) - 32.0f;
-                             if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, enemy.y + my)) {
+                             if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(enemy.x, (enemy.y + my), 0.4f)) {
                                  bool collision = false;
                                  for(const auto& br : bigRocks) {
                                      float dx = enemy.x - br.x;
@@ -4731,7 +4830,7 @@ void UpdateEnemies(float deltaTime) {
                          float my = (dy / dist) * chaseSpeed * deltaTime;
                          float cdx = (enemy.x + mx) - 32.0f;
                          float cdy = (enemy.y + my) - 32.0f;
-                          if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x + mx, enemy.y)) {
+                          if (worldMap[(int)(enemy.x + mx)][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding((enemy.x + mx), enemy.y, 0.4f)) {
                                  bool collision = false;
                                  for(const auto& br : bigRocks) {
                                      float dx = (enemy.x + mx) - br.x;
@@ -4742,7 +4841,7 @@ void UpdateEnemies(float deltaTime) {
                           }
                          cdx = enemy.x - 32.0f;
                          cdy = (enemy.y + my) - 32.0f;
-                          if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, enemy.y + my)) {
+                          if (worldMap[(int)enemy.x][(int)(enemy.y + my)] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(enemy.x, (enemy.y + my), 0.4f)) {
                                  bool collision = false;
                                  for(const auto& br : bigRocks) {
                                      float dx = enemy.x - br.x;
@@ -5183,10 +5282,10 @@ void UpdateEnemies(float deltaTime) {
                         float newY = enemy.y + moveY;
                         float cdx = newX - 32.0f;
                         float cdy = newY - 32.0f;
-                        if (worldMap[(int)newX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(newX, enemy.y)) enemy.x = newX;
+                        if (worldMap[(int)newX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(newX, enemy.y, 0.4f)) enemy.x = newX;
                         cdx = enemy.x - 32.0f;
                         cdy = newY - 32.0f;
-                        if (worldMap[(int)enemy.x][(int)newY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, newY)) enemy.y = newY;
+                        if (worldMap[(int)enemy.x][(int)newY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(enemy.x, newY, 0.4f)) enemy.y = newY;
                     }
                 } else {
                     float moveX = (dx / dist) * enemy.speed * deltaTime;
@@ -5195,7 +5294,7 @@ void UpdateEnemies(float deltaTime) {
                     float newY = enemy.y + moveY;
                     float cdx = newX - 32.0f;
                     float cdy = newY - 32.0f;
-                    if (worldMap[(int)newX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(newX, enemy.y)) {
+                    if (worldMap[(int)newX][(int)enemy.y] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(newX, enemy.y, 0.4f)) {
                          bool collision = false;
                          for(const auto& br : bigRocks) {
                              float dx = newX - br.x;
@@ -5207,7 +5306,7 @@ void UpdateEnemies(float deltaTime) {
                     }
                     cdx = enemy.x - 32.0f;
                     cdy = newY - 32.0f;
-                    if (worldMap[(int)enemy.x][(int)newY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !CheckClawCollision(enemy.x, newY)) {
+                    if (worldMap[(int)enemy.x][(int)newY] == 0 && (cdx*cdx + cdy*cdy >= 9.0f) && !IsPositionColliding(enemy.x, newY, 0.4f)) {
                          bool collision = false;
                          for(const auto& br : bigRocks) {
                              float dx = enemy.x - br.x;
@@ -5572,7 +5671,7 @@ void UpdateEnemies(float deltaTime) {
             float centerDx = newX - 32.0f;
             float centerDy = newY - 32.0f;
             bool blockedBySpire = (centerDx*centerDx + centerDy*centerDy < 9.0f);
-            if (worldMap[(int)newX][(int)enemy.y] == 0 && !blockedBySpire && !CheckClawCollision(newX, enemy.y)) {
+            if (worldMap[(int)newX][(int)enemy.y] == 0 && !blockedBySpire && !IsPositionColliding(newX, enemy.y, 0.4f)) {
                  bool collision = false;
                  for(const auto& br : bigRocks) {
                      float dx = newX - br.x;
@@ -5594,7 +5693,7 @@ void UpdateEnemies(float deltaTime) {
             centerDx = enemy.x - 32.0f;
             centerDy = newY - 32.0f;
             blockedBySpire = (centerDx*centerDx + centerDy*centerDy < 9.0f);
-            if (worldMap[(int)enemy.x][(int)newY] == 0 && !blockedBySpire && !CheckClawCollision(enemy.x, newY)) {
+            if (worldMap[(int)enemy.x][(int)newY] == 0 && !blockedBySpire && !IsPositionColliding(enemy.x, newY, 0.4f)) {
                  bool collision = false;
                  for(const auto& br : bigRocks) {
                      float dx = enemy.x - br.x;
@@ -8020,6 +8119,7 @@ void RenderGun() {
     }
 }
 
+void SaveGame();
 void RenderGame(HDC hdc) {
     CastRays();
     // Render3DScene(); // Disabled
@@ -8262,11 +8362,16 @@ void RenderGame(HDC hdc) {
         DeleteObject(btnBrush);
         DeleteObject(borderPen);
     }
-    
+    if (g_LevelUpWindowOpen || g_PauseMenuOpen || victoryScreen) {
+        POINT pt;
+        if (GetCursorPos(&pt) && ScreenToClient(hMainWnd, &pt)) {
+            g_ui.mouseX = pt.x;
+            g_ui.mouseY = pt.y;
+        }
+    }
+
     if (g_PauseMenuOpen) {
-        // Semi-transparent overlay (fake it by drawing a dark rect over everything without alpha for simplicity, or just draw a solid menu box)
-        RECT pauseBox = {SCREEN_WIDTH/2 - 150, SCREEN_HEIGHT/2 - 100, SCREEN_WIDTH/2 + 150, SCREEN_HEIGHT/2 + 150};
-        FillRect(backBufferDC, &pauseBox, hBrushDarkGray);
+        DrawUI9Slice(backBufferPixels, SCREEN_WIDTH, SCREEN_HEIGHT, uiWindowPixels, uiWindowW, uiWindowH, SCREEN_WIDTH/2 - 150, SCREEN_HEIGHT/2 - 100, 300, 250, 8);
         
         SetBkMode(backBufferDC, TRANSPARENT);
         SetTextColor(backBufferDC, RGB(255, 255, 255));
@@ -8277,22 +8382,24 @@ void RenderGame(HDC hdc) {
         GetTextExtentPoint32W(backBufferDC, title, wcslen(title), &sz);
         TextOutW(backBufferDC, SCREEN_WIDTH/2 - sz.cx/2, SCREEN_HEIGHT/2 - 80, title, wcslen(title));
         
-        RECT quitBtn = {SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 20, SCREEN_WIDTH/2 + 100, SCREEN_HEIGHT/2 + 20};
-        FillRect(backBufferDC, &quitBtn, hBrushDarkRed);
+        if (DoUIButton(SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 20, 200, 40)) {
+            PostQuitMessage(0);
+        }
         const wchar_t* quitText = L"Quit";
         GetTextExtentPoint32W(backBufferDC, quitText, wcslen(quitText), &sz);
         TextOutW(backBufferDC, SCREEN_WIDTH/2 - sz.cx/2, SCREEN_HEIGHT/2 - 20 + 20 - sz.cy/2, quitText, wcslen(quitText));
         
-        RECT saveBtn = {SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 + 40, SCREEN_WIDTH/2 + 100, SCREEN_HEIGHT/2 + 80};
-        FillRect(backBufferDC, &saveBtn, hBrushBlue);
+        if (DoUIButton(SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 + 40, 200, 40)) {
+            SaveGame();
+            PostQuitMessage(0);
+        }
         const wchar_t* saveText = L"Save and Exit";
         GetTextExtentPoint32W(backBufferDC, saveText, wcslen(saveText), &sz);
         TextOutW(backBufferDC, SCREEN_WIDTH/2 - sz.cx/2, SCREEN_HEIGHT/2 + 40 + 20 - sz.cy/2, saveText, wcslen(saveText));
         
         SelectObject(backBufferDC, hOldFont);
     }
-
-    if (g_LevelUpWindowOpen || g_PauseMenuOpen || victoryScreen) {
+if (g_LevelUpWindowOpen || g_PauseMenuOpen || victoryScreen) {
         // Draw a custom software cursor
         POINT pt;
         if (GetCursorPos(&pt) && ScreenToClient(hMainWnd, &pt)) {
@@ -9432,7 +9539,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     InitGraphics();
     TryLoadAssets();
     GenerateWorld();
-    Pathfinder::Init(worldMap, CheckClawCollision);
+    Pathfinder::Init(worldMap, IsPositionColliding);
     SpawnEnemies();
     SpawnMedkit();
     InitClaws();
@@ -9592,6 +9699,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         HDC hdc = GetDC(hMainWnd);
         RenderGame(hdc);
         ReleaseDC(hMainWnd, hdc);
+        g_ui.mouseReleased = false;
     }
     return 0;
 }

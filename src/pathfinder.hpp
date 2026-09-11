@@ -31,7 +31,7 @@ struct PathNode {
 
 static int (*worldMapPtr)[PATH_MAP_HEIGHT] = nullptr;
 
-typedef bool (*ExternalCollisionFunc)(float x, float y);
+typedef bool (*ExternalCollisionFunc)(float x, float y, float radius);
 static ExternalCollisionFunc externalCollisionCheck = nullptr;
 
 // Stamps array to replace O(4096) loop
@@ -49,36 +49,43 @@ inline void Init(int (*wm)[PATH_MAP_HEIGHT], ExternalCollisionFunc extCollision 
     currentVisitStamp = 0;
 }
 
-inline bool IsBlocked(int x, int y) {
+inline bool IsBlocked(int x, int y, float radius = 0.4f) {
     if (x < 0 || x >= PATH_MAP_WIDTH || y < 0 || y >= PATH_MAP_HEIGHT) return true;
     if (worldMapPtr[x][y] != 0) return true;
     
     float cellCenterX = x + 0.5f;
     float cellCenterY = y + 0.5f;
-    if (externalCollisionCheck && externalCollisionCheck(cellCenterX, cellCenterY)) return true;
+    if (externalCollisionCheck && externalCollisionCheck(cellCenterX, cellCenterY, radius)) return true;
     
     return false;
 }
 
-inline bool LineOfSight(int x0, int y0, int x1, int y1) {
-    int dx = std::abs(x1 - x0);
-    int dy = -std::abs(y1 - y0);
-    int sx = x0 < x1 ? 1 : -1;
-    int sy = y0 < y1 ? 1 : -1;
-    int err = dx + dy, e2;
+inline bool LineOfSight(int x0, int y0, int x1, int y1, float radius = 0.4f) {
+    float startX = x0 + 0.5f;
+    float startY = y0 + 0.5f;
+    float endX = x1 + 0.5f;
+    float endY = y1 + 0.5f;
+    float dx = endX - startX;
+    float dy = endY - startY;
+    float dist = std::sqrt(dx*dx + dy*dy);
     
-    while (true) {
-        if (IsBlocked(x0, y0)) return false;
-        if (x0 == x1 && y0 == y1) break;
-        e2 = 2 * err;
+    if (dist <= 0.001f) return true;
+    
+    float stepSize = (radius > 0.0f) ? (radius * 0.5f) : 0.2f;
+    int steps = (int)std::ceil(dist / stepSize);
+    float stepX = dx / steps;
+    float stepY = dy / steps;
+    
+    for (int i = 0; i <= steps; i++) {
+        float cx = startX + stepX * i;
+        float cy = startY + stepY * i;
         
-        // Avoid corner cutting
-        if (e2 >= dy && e2 <= dx) {
-            if (IsBlocked(x0 + sx, y0) || IsBlocked(x0, y0 + sy)) return false;
-        }
+        int cellX = (int)cx;
+        int cellY = (int)cy;
+        if (cellX < 0 || cellX >= PATH_MAP_WIDTH || cellY < 0 || cellY >= PATH_MAP_HEIGHT) return false;
+        if (worldMapPtr[cellX][cellY] != 0) return false;
         
-        if (e2 >= dy) { err += dy; x0 += sx; }
-        if (e2 <= dx) { err += dx; y0 += sy; }
+        if (externalCollisionCheck && externalCollisionCheck(cx, cy, radius)) return false;
     }
     return true;
 }
@@ -89,7 +96,7 @@ inline float Heuristic(int x1, int y1, int x2, int y2) {
     return std::sqrt(dx*dx + dy*dy);
 }
 
-inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, float targetX, float targetY) {
+inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, float targetX, float targetY, float radius = 0.4f) {
     std::vector<std::pair<int,int>> result;
     if (!worldMapPtr) return result;
     
@@ -101,13 +108,13 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
     if (sx < 0 || sx >= PATH_MAP_WIDTH || sy < 0 || sy >= PATH_MAP_HEIGHT) return result;
     if (tx < 0 || tx >= PATH_MAP_WIDTH || ty < 0 || ty >= PATH_MAP_HEIGHT) return result;
     
-    if (IsBlocked(tx, ty)) {
+    if (IsBlocked(tx, ty, radius)) {
         for (int ddx = -1; ddx <= 1; ddx++) {
             for (int ddy = -1; ddy <= 1; ddy++) {
                 if (ddx == 0 && ddy == 0) continue;
                 int nx = tx + ddx;
                 int ny = ty + ddy;
-                if (!IsBlocked(nx, ny)) {
+                if (!IsBlocked(nx, ny, radius)) {
                     tx = nx;
                     ty = ny;
                     goto found_valid_target;
@@ -168,13 +175,13 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
             int nx = current.x + dx8[i];
             int ny = current.y + dy8[i];
             
-            if (IsBlocked(nx, ny)) continue;
+            if (IsBlocked(nx, ny, radius)) continue;
             if (visitStamp[nx][ny] == currentVisitStamp) continue;
             
             // Fix diagonal movement clipping (block if EITHER adjacent is blocked)
             if (dx8[i] != 0 && dy8[i] != 0) {
-                if (IsBlocked(current.x + dx8[i], current.y) || 
-                    IsBlocked(current.x, current.y + dy8[i])) continue;
+                if (IsBlocked(current.x + dx8[i], current.y, radius) || 
+                    IsBlocked(current.x, current.y + dy8[i], radius)) continue;
             }
             
             float tentativeG = gScoreMap[current.x][current.y] + cost8[i];
@@ -227,7 +234,7 @@ inline std::vector<std::pair<int,int>> FindPath(float startX, float startY, floa
             int next = current + 1;
             // Raycast forward to find furthest visible node
             for (int i = (int)result.size() - 1; i > current + 1; --i) {
-                if (LineOfSight(result[current].first, result[current].second, result[i].first, result[i].second)) {
+                if (LineOfSight(result[current].first, result[current].second, result[i].first, result[i].second, radius)) {
                     next = i;
                     break;
                 }

@@ -15,7 +15,7 @@ static int g_passed = 0;
 
 int testMap[64][64];
 
-bool DummyCollision(float x, float y) {
+bool DummyCollision(float x, float y, float radius) {
     return false;
 }
 
