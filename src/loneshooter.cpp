@@ -4956,7 +4956,20 @@ void UpdateEnemies(float deltaTime) {
         float dy = player.y - enemy.y;
         float dist = sqrtf(dx*dx + dy*dy);
         
+        float targetX = player.x; float targetY = player.y;
+        float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
+        Enemy* spearTarget = nullptr;
+        for (auto& e : enemies) {
+            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
+                if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; spearTarget = &e; }
+            }
+        }
+        float pdx = targetX - enemy.x; float pdy = targetY - enemy.y;
+        float pdist = sqrtf(pdx*pdx + pdy*pdy);
+
         if (enemy.isSpearGuy) {
+            float dx = pdx; float dy = pdy; float dist = pdist;
             if (enemy.dashCooldown > 0) enemy.dashCooldown -= deltaTime;
             if (enemy.blockCooldown > 0) enemy.blockCooldown -= deltaTime;
             
@@ -5014,14 +5027,14 @@ void UpdateEnemies(float deltaTime) {
                 float moveX = cosf(ang) * dashSpeed * deltaTime;
                 float moveY = sinf(ang) * dashSpeed * deltaTime;
                 if (worldMap[(int)(enemy.x + moveX)][(int)enemy.y] == 0) {
-                    float pdx = (enemy.x + moveX) - player.x;
-                    float pdy = enemy.y - player.y;
-                    if (pdx*pdx + pdy*pdy >= 0.64f) enemy.x += moveX;
+                    float pdx2 = (enemy.x + moveX) - targetX;
+                    float pdy2 = enemy.y - targetY;
+                    if (pdx2*pdx2 + pdy2*pdy2 >= 0.64f) enemy.x += moveX;
                 }
                 if (worldMap[(int)enemy.x][(int)(enemy.y + moveY)] == 0) {
-                    float pdx = enemy.x - player.x;
-                    float pdy = (enemy.y + moveY) - player.y;
-                    if (pdx*pdx + pdy*pdy >= 0.64f) enemy.y += moveY;
+                    float pdx2 = enemy.x - targetX;
+                    float pdy2 = (enemy.y + moveY) - targetY;
+                    if (pdx2*pdx2 + pdy2*pdy2 >= 0.64f) enemy.y += moveY;
                 }
                 if (enemy.spearTimer <= 0) enemy.spearState = 0;
             } else if (enemy.spearState == 3) { // Blocking
@@ -5031,10 +5044,16 @@ void UpdateEnemies(float deltaTime) {
                 if (dist <= 2.0f) {
                     enemy.spearState = 1; // Idle while attacking
                     if (enemy.attackTimer <= 0) {
-                        if (!godMode) player.health -= 15; // Spear damage
-                        PlayPlayerHurtSound();
-                        playerHurtTimer = 0.5f;
-                        screenShakeTimer = 0.5f;
+                        if (spearTarget) {
+                            spearTarget->health -= 15;
+                            spearTarget->hurtTimer = 0.5f;
+                            if (spearTarget->health <= 0) spearTarget->active = false;
+                        } else {
+                            if (!godMode) player.health -= 15; // Spear damage
+                            PlayPlayerHurtSound();
+                            playerHurtTimer = 0.5f;
+                            screenShakeTimer = 0.5f;
+                        }
                         enemy.attackTimer = 1.5f;
                     }
                 } else if (nearbyMelee >= 3) {
@@ -5073,6 +5092,10 @@ void UpdateEnemies(float deltaTime) {
             if (enemy.attackTimer > 0) enemy.attackTimer -= deltaTime;
 
         } else if (enemy.isDefectedGunner) {
+            if (defectedOfficerActive) {
+                if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+                continue;
+            }
             if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
             float closestDist = 9999.0f;
             Enemy* target = nullptr;
@@ -5093,6 +5116,7 @@ void UpdateEnemies(float deltaTime) {
                     Bullet b; b.x = enemy.x; b.y = enemy.y;
                     b.dirX = cosf(targetAngle); b.dirY = sinf(targetAngle);
                     b.active = true; b.speed = 10.0f; b.damage = 15;
+                    b.startX = enemy.x; b.startY = enemy.y; b.maxRange = 25.0f;
                     bullets.push_back(b);
                     enemy.fireTimer = 2.0f;
                     enemy.firingTimer = 0.2f;
@@ -5109,9 +5133,10 @@ void UpdateEnemies(float deltaTime) {
         } else if (enemy.isDefectedOfficer) {
             if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
             if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
-            
+            if (enemy.officerCooldown > 0) enemy.officerCooldown -= deltaTime;
+
+            // Heal player when nearby
             if (dist < 8.0f) {
-                // Buff player by regenerating health slowly (1 HP every second if below max)
                 if (enemy.healTimer <= 0 && player.health < player.maxHealth) {
                     player.health += 1;
                     enemy.healTimer = 1.0f;
@@ -5119,33 +5144,134 @@ void UpdateEnemies(float deltaTime) {
                     enemy.healTimer -= deltaTime;
                 }
             }
-            
-            float closestDist = 9999.0f;
-            Enemy* target = nullptr;
+
+            // Collect defected gunners as squad
+            std::vector<Enemy*> defectedGunners;
+            for (auto& e : enemies) {
+                if (e.active && e.isDefectedGunner) defectedGunners.push_back(&e);
+            }
+
+            // Find nearest hostile target
+            float closestEnemyDist = 9999.0f;
+            Enemy* hostileTarget = nullptr;
             for (auto& e : enemies) {
                 if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
                 float edx = e.x - enemy.x; float edy = e.y - enemy.y;
                 float d = sqrtf(edx*edx + edy*edy);
-                if (d < closestDist) { closestDist = d; target = &e; }
+                if (d < closestEnemyDist) { closestEnemyDist = d; hostileTarget = &e; }
             }
-            if (dist > 4.0f) {
-                enemy.x += (dx/dist)*enemy.speed*1.2f*deltaTime;
-                enemy.y += (dy/dist)*enemy.speed*1.2f*deltaTime;
-                enemy.officerState = 0;
-            } else {
-                enemy.officerState = 1;
+
+            // State machine: 0=follow player, 1=form line, 2=volley, 3=retreat/summon
+            if (enemy.officerState != 2) {
+                if (dist < 5.0f || defectedGunners.size() < (size_t)(maxShooterSpawn * 0.15f)) {
+                    enemy.officerState = 3; // Retreat and summon
+                } else {
+                    enemy.officerState = 1; // Form line
+                }
             }
-            
-            if (target && closestDist <= 12.0f && enemy.fireTimer <= 0) {
-                float edx = target->x - enemy.x; float edy = target->y - enemy.y;
-                float targetAngle = atan2f(edy, edx);
-                Bullet b; b.x = enemy.x; b.y = enemy.y;
-                b.dirX = cosf(targetAngle); b.dirY = sinf(targetAngle);
-                b.active = true; b.speed = 10.0f; b.damage = 15;
-                bullets.push_back(b);
-                enemy.fireTimer = 1.5f;
-                enemy.firingTimer = 0.2f;
-                PlayEnemyFireSound();
+
+            if (enemy.officerState == 3) {
+                // Retreat toward player but keep a buffer distance
+                if (dist > 6.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
+                } else if (dist < 4.0f) {
+                    enemy.x -= (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y -= (dy/dist)*enemy.speed*deltaTime;
+                }
+                // Summon defected gunners when squad is small
+                if (enemy.officerCooldown <= 0 && defectedGunners.size() < 4) {
+                    int needed = 4 - (int)defectedGunners.size();
+                    for (int i = 0; i < needed; i++) {
+                        Enemy dg;
+                        dg.x = enemy.x + (rand()%200 - 100)/100.0f;
+                        dg.y = enemy.y + (rand()%200 - 100)/100.0f;
+                        dg.active = true; dg.speed = 1.2f; dg.spriteIndex = 0; dg.health = 2; dg.maxHealth = 2;
+                        dg.isShooter = true; dg.isDefectedGunner = true;
+                        dg.fireTimer = 2.0f; dg.firingTimer = 0; dg.hurtTimer = 0;
+                        dg.hasNeuralBrain = true;
+                        NeuralAI::InheritBrain(dg.brain);
+                        pendingEnemies.push_back(dg);
+                    }
+                    enemy.officerCooldown = 20.0f;
+                }
+            } else if (enemy.officerState == 1) {
+                // Hold a flanking position relative to nearest hostile
+                if (dist > 10.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
+                } else if (dist < 8.0f) {
+                    enemy.x -= (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y -= (dy/dist)*enemy.speed*deltaTime;
+                }
+
+                // Arrange defected gunners in a firing line perpendicular to the enemy
+                if (hostileTarget) {
+                    float aTgt = atan2f(hostileTarget->y - enemy.y, hostileTarget->x - enemy.x);
+                    float lineAngle = aTgt + 3.14159f/2.0f;
+                    int gi = 0; int gc = (int)defectedGunners.size(); bool allReady = true;
+                    for (auto* g : defectedGunners) {
+                        float offset = (gi - (gc-1)/2.0f) * 0.8f;
+                        float tx = enemy.x + cosf(lineAngle) * offset;
+                        float ty = enemy.y + sinf(lineAngle) * offset;
+                        float gdx = tx - g->x; float gdy = ty - g->y;
+                        float gdist = sqrtf(gdx*gdx + gdy*gdy);
+                        if (gdist > 0.5f) {
+                            g->x += (gdx/gdist)*g->speed*deltaTime;
+                            g->y += (gdy/gdist)*g->speed*deltaTime;
+                            allReady = false;
+                        }
+                        g->fireTimer = 2.0f; // suppress individual firing while forming
+                        gi++;
+                    }
+                    // Trigger volley when line is set
+                    if (allReady && enemy.fireTimer <= 0) {
+                        const float VOLLEY_STAGGER = 0.1f;
+                        int idx = 1;
+                        for (auto* g : defectedGunners) {
+                            g->fireTimer = -(idx * VOLLEY_STAGGER);
+                            idx++;
+                        }
+                        enemy.fireTimer = 3.0f;
+                        enemy.officerState = 2;
+                    }
+                }
+            } else if (enemy.officerState == 2) {
+                // Staggered volley: each defected gunner fires at the nearest hostile in sequence
+                bool allFired = true;
+                for (auto* g : defectedGunners) {
+                    if (g->fireTimer < 0.0f) {
+                        g->fireTimer += deltaTime;
+                        allFired = false;
+                        if (g->fireTimer >= 0.0f) {
+                            // Find closest hostile for this gunner
+                            Enemy* gTarget = nullptr; float gClosest = 9999.0f;
+                            for (auto& e : enemies) {
+                                if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
+                                float gdx = e.x - g->x; float gdy = e.y - g->y;
+                                float gd = sqrtf(gdx*gdx + gdy*gdy);
+                                if (gd < gClosest) { gClosest = gd; gTarget = &e; }
+                            }
+                            if (gTarget) {
+                                float shotAngle = atan2f(gTarget->y - g->y, gTarget->x - g->x);
+                                Bullet eb; eb.x = g->x; eb.y = g->y;
+                                eb.dirX = cosf(shotAngle); eb.dirY = sinf(shotAngle);
+                                eb.active = true; eb.speed = 10.0f; eb.damage = 1;
+                                eb.startX = g->x; eb.startY = g->y; eb.maxRange = 25.0f;
+                                bullets.push_back(eb);
+                                g->firingTimer = 0.2f;
+                                PlayEnemyFireSound();
+                            }
+                        }
+                    }
+                }
+                if (allFired && enemy.fireTimer <= 0) {
+                    enemy.officerState = 1;
+                }
+            }
+
+            if (enemy.officerState != enemy.prevOfficerState) {
+                enemy.prevOfficerState = enemy.officerState;
             }
 
         } else if (enemy.isOfficer) {
@@ -5230,7 +5356,7 @@ void UpdateEnemies(float deltaTime) {
                     // Begin staggered volley: assign each gunner a negative countdown
                     // They fire sequentially 0.1s apart instead of all at once
                     const float VOLLEY_STAGGER = 0.1f;
-                    int idx = 0;
+                    int idx = 1;
                     for (auto* g : gunners) {
                         g->fireTimer = -(idx * VOLLEY_STAGGER); // negative = pending shot
                         idx++;
@@ -5248,7 +5374,15 @@ void UpdateEnemies(float deltaTime) {
                         allFired = false;
                         if (g->fireTimer >= 0.0f) {
                             // This gunner's moment to fire
-                            float targetAngle = atan2f(player.y - g->y, player.x - g->x);
+                            float targetX = player.x; float targetY = player.y;
+                            float closestDist = sqrtf((player.x - g->x)*(player.x - g->x) + (player.y - g->y)*(player.y - g->y));
+                            for (auto& e : enemies) {
+                                if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                                    float d = sqrtf((e.x - g->x)*(e.x - g->x) + (e.y - g->y)*(e.y - g->y));
+                                    if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
+                                }
+                            }
+                            float targetAngle = atan2f(targetY - g->y, targetX - g->x);
                             EnemyBullet eb; eb.x = g->x; eb.y = g->y;
                             eb.dirX = cosf(targetAngle); eb.dirY = sinf(targetAngle);
                             eb.speed = 8.0f; eb.active = true; eb.isLaser = false;
@@ -5335,8 +5469,16 @@ void UpdateEnemies(float deltaTime) {
                         EnemyBullet eb;
                         eb.x = enemy.x;
                         eb.y = enemy.y;
-                        float edx = player.x - enemy.x;
-                        float edy = player.y - enemy.y;
+                        float targetX = player.x; float targetY = player.y;
+                        float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
+                        for (auto& e : enemies) {
+                            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                                float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
+                                if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
+                            }
+                        }
+                        float edx = targetX - enemy.x;
+                        float edy = targetY - enemy.y;
                         float edist = sqrtf(edx*edx + edy*edy);
                         eb.dirX = edx / edist;
                         eb.dirY = edy / edist;
@@ -5355,8 +5497,16 @@ void UpdateEnemies(float deltaTime) {
                     EnemyBullet eb;
                     eb.x = enemy.x;
                     eb.y = enemy.y;
-                    float edx = player.x - enemy.x;
-                    float edy = player.y - enemy.y;
+                    float targetX = player.x; float targetY = player.y;
+                    float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
+                    for (auto& e : enemies) {
+                        if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                            float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
+                            if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
+                        }
+                    }
+                    float edx = targetX - enemy.x;
+                    float edy = targetY - enemy.y;
                     float edist = sqrtf(edx*edx + edy*edy);
                     eb.dirX = edx / edist;
                     eb.dirY = edy / edist;
@@ -5918,6 +6068,23 @@ eb.active = false; break; }
         }
         if (!eb.active) continue;
         
+        bool hitDefected = false;
+        for (auto& e : enemies) {
+            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                float edx = e.x - eb.x;
+                float edy = e.y - eb.y;
+                if (sqrtf(edx*edx + edy*edy) < 0.5f) {
+                    int dmg = eb.isLaser ? 10 : 5;
+                    e.health -= dmg;
+                    e.hurtTimer = 0.2f;
+                    eb.active = false;
+                    hitDefected = true;
+                    break;
+                }
+            }
+        }
+        if (hitDefected) continue;
+        
         float pdx = player.x - eb.x;
         float pdy = player.y - eb.y;
         if (sqrtf(pdx*pdx + pdy*pdy) < 0.5f) {
@@ -6183,8 +6350,16 @@ eb.active = false; break; }
                     laserTimer += deltaTime;
                     if (laserTimer >= 0.5f) { // Rapid burst every 0.5s
                         // Fire laser projectile at player
-                        float dx = player.x - c.x;
-                        float dy = player.y - c.y;
+                        float targetX = player.x; float targetY = player.y;
+                        float closestDist = sqrtf((player.x - c.x)*(player.x - c.x) + (player.y - c.y)*(player.y - c.y));
+                        for (auto& e : enemies) {
+                            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                                float d = sqrtf((e.x - c.x)*(e.x - c.x) + (e.y - c.y)*(e.y - c.y));
+                                if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
+                            }
+                        }
+                        float dx = targetX - c.x;
+                        float dy = targetY - c.y;
                         float dist = sqrtf(dx*dx + dy*dy);
                         if (dist > 0.1f) {
                             EnemyBullet laser;
@@ -6838,6 +7013,7 @@ void UpdateBullets(float deltaTime) {
             if (!hit) {
                  for (auto& e : enemies) {
                      if (!e.active) continue;
+                     if (e.isDefectedOfficer || e.isDefectedGunner) continue; // Don't trigger on friendly defected units
                      float edx = r.x - e.x;
                      float edy = r.y - e.y;
                      if (sqrtf(edx*edx + edy*edy) < 1.0f) { hit = true; break; }
@@ -6905,6 +7081,7 @@ void UpdateBullets(float deltaTime) {
                 
                 for (auto& e : enemies) {
                     if (!e.active) continue;
+                    if (e.isDefectedOfficer || e.isDefectedGunner) continue; // Don't damage friendly defected units
                     float dX = r.x - e.x;
                     float dY = r.y - e.y;
                     float dist = sqrtf(dX*dX + dY*dY);
@@ -6921,6 +7098,7 @@ void UpdateBullets(float deltaTime) {
                             }
                             e.active = false;
                             if (e.isMarshall) { marshallKilled = true; bazookaUnlocked = true; upgradeMessageTimer = 3.0f; }
+                            if (e.isOfficer) { officerSpawned = false; } // Reset so officer can respawn
                             score++;
                             GivePlayerXP(GetEnemyXP(e));
                             PlayScoreSound();
@@ -7072,6 +7250,7 @@ void UpdateBullets(float deltaTime) {
         
         for (auto& enemy : enemies) {
             if (!enemy.active) continue;
+            if (enemy.isDefectedOfficer || enemy.isDefectedGunner) continue; // Don't hit friendly defected units
             float edx = b.x - enemy.x;
             float edy = b.y - enemy.y;
             if (sqrtf(edx*edx + edy*edy) < 0.4f) {
@@ -7098,6 +7277,7 @@ void UpdateBullets(float deltaTime) {
                         officerSpawned = false;
                     }
                     if (enemy.isDefectedOfficer) {
+                        defectedOfficerActive = false; // Clear so enemy officer can respawn and defected timer re-arms cleanly
                         defectedRespawnTimer = 10.0f;
                     }
                     if (enemy.isMarshall) {
@@ -7168,6 +7348,7 @@ void UpdateBullets(float deltaTime) {
                             
                             pendingEnemies.push_back(marshall);
                             marshallSpawned = true;
+                            defectedRespawnTimer = 5.0f; // Trigger initial officer defection shortly after Marshall spawns
                             
                             // Spawn 10 minions to follow him
                             for (int k=0; k<10; k++) {
@@ -7347,6 +7528,7 @@ void UpdateParagons(float deltaTime) {
         float nearestEnemyDist = 6.0f;
         for (size_t i = 0; i < enemies.size(); i++) {
             if (!enemies[i].active) continue;
+            if (enemies[i].isDefectedOfficer || enemies[i].isDefectedGunner) continue; // Don't target friendly defected units
             float dx = enemies[i].x - p.x;
             float dy = enemies[i].y - p.y;
             float dist = sqrtf(dx*dx + dy*dy);
@@ -7970,6 +8152,9 @@ void DrawMinimap(HDC hdc) {
         InitClaws();
         marshallSpawned = false; 
         marshallKilled = false;
+        officerSpawned = false;
+        defectedOfficerActive = false;
+        defectedRespawnTimer = 0.0f;
         militiaBarActive = false;
         SpawnEnemies();
     }
