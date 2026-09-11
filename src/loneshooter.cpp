@@ -8932,51 +8932,72 @@ void SaveGame() {
     FILE* f = _wfopen(L"configs/savegame.dat", L"wb");
     if (!f) return;
     
-    fwrite(&player, sizeof(Player), 1, f);
-    fwrite(&score, sizeof(int), 1, f);
-    fwrite(&phase2Active, sizeof(bool), 1, f);
-    fwrite(&forceFieldActive, sizeof(bool), 1, f);
-    fwrite(&enragedMode, sizeof(bool), 1, f);
-    fwrite(&hordeActive, sizeof(bool), 1, f);
-    fwrite(&bossActive, sizeof(bool), 1, f);
-    fwrite(&preBossPhase, sizeof(bool), 1, f);
-    fwrite(&bossHealth, sizeof(int), 1, f);
-    
-    fwrite(&currentWeapon, sizeof(int), 1, f);
-    fwrite(&ammo, sizeof(int), 1, f);
-    fwrite(weaponAmmo, sizeof(int), 3, f);
-    fwrite(&gunUpgraded, sizeof(bool), 1, f);
-    fwrite(&bazookaUnlocked, sizeof(bool), 1, f);
-    
-    int enemyCount = enemies.size();
-    fwrite(&enemyCount, sizeof(int), 1, f);
-    for (auto& e : enemies) {
-        fwrite(&e.x, sizeof(float), 1, f);
-        fwrite(&e.y, sizeof(float), 1, f);
-        fwrite(&e.active, sizeof(bool), 1, f);
-        fwrite(&e.spriteIndex, sizeof(int), 1, f);
-        fwrite(&e.health, sizeof(int), 1, f);
-        fwrite(&e.maxHealth, sizeof(int), 1, f);
-        fwrite(&e.isShooter, sizeof(bool), 1, f);
-        fwrite(&e.isMarshall, sizeof(bool), 1, f);
-        fwrite(&e.state, sizeof(int), 1, f);
-        fwrite(&e.tacticState, sizeof(int), 1, f);
-        fwrite(&e.flankDir, sizeof(int), 1, f);
-        fwrite(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
-        fwrite(&e.hasNeuralBrain, sizeof(bool), 1, f);
-        fwrite(&e.dodgeDir, sizeof(int), 1, f);
-        fwrite(&e.isPhalanx, sizeof(bool), 1, f);
-        fwrite(&e.isSpearGuy, sizeof(bool), 1, f);
-        fwrite(&e.spearState, sizeof(int), 1, f);
-        fwrite(&e.isOfficer, sizeof(bool), 1, f);
-        fwrite(&e.isDefectedOfficer, sizeof(bool), 1, f);
-        fwrite(&e.isDefectedGunner, sizeof(bool), 1, f);
-        fwrite(&e.officerState, sizeof(int), 1, f);
-        fwrite(&e.speed, sizeof(float), 1, f);
-    }
-    
-    for (int i = 0; i < 6; i++) {
-        fwrite(&claws[i], sizeof(Claw), 1, f);
+    try {
+        fwrite(&player, sizeof(Player), 1, f);
+        fwrite(&score, sizeof(int), 1, f);
+        fwrite(&phase2Active, sizeof(bool), 1, f);
+        fwrite(&forceFieldActive, sizeof(bool), 1, f);
+        fwrite(&enragedMode, sizeof(bool), 1, f);
+        fwrite(&hordeActive, sizeof(bool), 1, f);
+        fwrite(&bossActive, sizeof(bool), 1, f);
+        fwrite(&preBossPhase, sizeof(bool), 1, f);
+        fwrite(&bossHealth, sizeof(int), 1, f);
+        
+        fwrite(&currentWeapon, sizeof(int), 1, f);
+        fwrite(&ammo, sizeof(int), 1, f);
+        fwrite(weaponAmmo, sizeof(int), 3, f);
+        fwrite(&gunUpgraded, sizeof(bool), 1, f);
+        fwrite(&bazookaUnlocked, sizeof(bool), 1, f);
+        
+        int enemyCount = enemies.size();
+        fwrite(&enemyCount, sizeof(int), 1, f);
+        for (auto& e : enemies) {
+            fwrite(&e.x, sizeof(float), 1, f);
+            fwrite(&e.y, sizeof(float), 1, f);
+            fwrite(&e.active, sizeof(bool), 1, f);
+            fwrite(&e.spriteIndex, sizeof(int), 1, f);
+            fwrite(&e.health, sizeof(int), 1, f);
+            fwrite(&e.maxHealth, sizeof(int), 1, f);
+            fwrite(&e.isShooter, sizeof(bool), 1, f);
+            fwrite(&e.isMarshall, sizeof(bool), 1, f);
+            fwrite(&e.state, sizeof(int), 1, f);
+            fwrite(&e.tacticState, sizeof(int), 1, f);
+            fwrite(&e.flankDir, sizeof(int), 1, f);
+            fwrite(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
+            fwrite(&e.hasNeuralBrain, sizeof(bool), 1, f);
+            fwrite(&e.dodgeDir, sizeof(int), 1, f);
+            fwrite(&e.isPhalanx, sizeof(bool), 1, f);
+            fwrite(&e.isSpearGuy, sizeof(bool), 1, f);
+            fwrite(&e.spearState, sizeof(int), 1, f);
+            fwrite(&e.isOfficer, sizeof(bool), 1, f);
+            fwrite(&e.isDefectedOfficer, sizeof(bool), 1, f);
+            fwrite(&e.isDefectedGunner, sizeof(bool), 1, f);
+            fwrite(&e.officerState, sizeof(int), 1, f);
+            fwrite(&e.speed, sizeof(float), 1, f);
+        }
+        
+        for (int i = 0; i < 6; i++) {
+            fwrite(&claws[i], sizeof(Claw), 1, f);
+        }
+
+        // Append missing player variables
+        fwrite(&playerDamage, sizeof(int), 1, f);
+        fwrite(&g_BonusSpeed, sizeof(float), 1, f);
+        fwrite(&g_PendingUpgrades, sizeof(int), 1, f);
+        
+        // Append missing boss state variables
+        fwrite(&bossDead, sizeof(bool), 1, f);
+        fwrite(&preBossTimer, sizeof(float), 1, f);
+        fwrite(&bossEventTimer, sizeof(float), 1, f);
+        fwrite(&fireballSpawnTimer, sizeof(float), 1, f);
+        fwrite(&bossHurtTimer, sizeof(float), 1, f);
+        fwrite(&bossSpawnTimer, sizeof(float), 1, f);
+        fwrite(&postBossPhase, sizeof(bool), 1, f);
+        fwrite(&phase2BossFrame, sizeof(int), 1, f);
+        fwrite(&phase2BossAnimTimer, sizeof(float), 1, f);
+        
+    } catch (...) {
+        // Handle unexpected errors during save
     }
 
     fclose(f);
@@ -8986,54 +9007,76 @@ bool LoadGame() {
     FILE* f = _wfopen(L"configs/savegame.dat", L"rb");
     if (!f) return false;
     
-    fread(&player, sizeof(Player), 1, f);
-    fread(&score, sizeof(int), 1, f);
-    fread(&phase2Active, sizeof(bool), 1, f);
-    fread(&forceFieldActive, sizeof(bool), 1, f);
-    fread(&enragedMode, sizeof(bool), 1, f);
-    fread(&hordeActive, sizeof(bool), 1, f);
-    fread(&bossActive, sizeof(bool), 1, f);
-    fread(&preBossPhase, sizeof(bool), 1, f);
-    fread(&bossHealth, sizeof(int), 1, f);
-    
-    fread(&currentWeapon, sizeof(int), 1, f);
-    fread(&ammo, sizeof(int), 1, f);
-    fread(weaponAmmo, sizeof(int), 3, f);
-    fread(&gunUpgraded, sizeof(bool), 1, f);
-    fread(&bazookaUnlocked, sizeof(bool), 1, f);
-    
-    int enemyCount = 0;
-    fread(&enemyCount, sizeof(int), 1, f);
-    enemies.clear();
-    for (int i = 0; i < enemyCount; i++) {
-        Enemy e;
-        fread(&e.x, sizeof(float), 1, f);
-        fread(&e.y, sizeof(float), 1, f);
-        fread(&e.active, sizeof(bool), 1, f);
-        fread(&e.spriteIndex, sizeof(int), 1, f);
-        fread(&e.health, sizeof(int), 1, f);
-        fread(&e.maxHealth, sizeof(int), 1, f);
-        fread(&e.isShooter, sizeof(bool), 1, f);
-        fread(&e.isMarshall, sizeof(bool), 1, f);
-        fread(&e.state, sizeof(int), 1, f);
-        fread(&e.tacticState, sizeof(int), 1, f);
-        fread(&e.flankDir, sizeof(int), 1, f);
-        fread(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
-        fread(&e.hasNeuralBrain, sizeof(bool), 1, f);
-        fread(&e.dodgeDir, sizeof(int), 1, f);
-        fread(&e.isPhalanx, sizeof(bool), 1, f);
-        fread(&e.isSpearGuy, sizeof(bool), 1, f);
-        fread(&e.spearState, sizeof(int), 1, f);
-        fread(&e.isOfficer, sizeof(bool), 1, f);
-        fread(&e.isDefectedOfficer, sizeof(bool), 1, f);
-        fread(&e.isDefectedGunner, sizeof(bool), 1, f);
-        fread(&e.officerState, sizeof(int), 1, f);
-        fread(&e.speed, sizeof(float), 1, f);
-        enemies.push_back(e);
-    }
-    
-    for (int i = 0; i < 6; i++) {
-        fread(&claws[i], sizeof(Claw), 1, f);
+    try {
+        fread(&player, sizeof(Player), 1, f);
+        fread(&score, sizeof(int), 1, f);
+        fread(&phase2Active, sizeof(bool), 1, f);
+        fread(&forceFieldActive, sizeof(bool), 1, f);
+        fread(&enragedMode, sizeof(bool), 1, f);
+        fread(&hordeActive, sizeof(bool), 1, f);
+        fread(&bossActive, sizeof(bool), 1, f);
+        fread(&preBossPhase, sizeof(bool), 1, f);
+        fread(&bossHealth, sizeof(int), 1, f);
+        
+        fread(&currentWeapon, sizeof(int), 1, f);
+        fread(&ammo, sizeof(int), 1, f);
+        fread(weaponAmmo, sizeof(int), 3, f);
+        fread(&gunUpgraded, sizeof(bool), 1, f);
+        fread(&bazookaUnlocked, sizeof(bool), 1, f);
+        
+        int enemyCount = 0;
+        fread(&enemyCount, sizeof(int), 1, f);
+        enemies.clear();
+        for (int i = 0; i < enemyCount; i++) {
+            Enemy e;
+            fread(&e.x, sizeof(float), 1, f);
+            fread(&e.y, sizeof(float), 1, f);
+            fread(&e.active, sizeof(bool), 1, f);
+            fread(&e.spriteIndex, sizeof(int), 1, f);
+            fread(&e.health, sizeof(int), 1, f);
+            fread(&e.maxHealth, sizeof(int), 1, f);
+            fread(&e.isShooter, sizeof(bool), 1, f);
+            fread(&e.isMarshall, sizeof(bool), 1, f);
+            fread(&e.state, sizeof(int), 1, f);
+            fread(&e.tacticState, sizeof(int), 1, f);
+            fread(&e.flankDir, sizeof(int), 1, f);
+            fread(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
+            fread(&e.hasNeuralBrain, sizeof(bool), 1, f);
+            fread(&e.dodgeDir, sizeof(int), 1, f);
+            fread(&e.isPhalanx, sizeof(bool), 1, f);
+            fread(&e.isSpearGuy, sizeof(bool), 1, f);
+            fread(&e.spearState, sizeof(int), 1, f);
+            fread(&e.isOfficer, sizeof(bool), 1, f);
+            fread(&e.isDefectedOfficer, sizeof(bool), 1, f);
+            fread(&e.isDefectedGunner, sizeof(bool), 1, f);
+            fread(&e.officerState, sizeof(int), 1, f);
+            fread(&e.speed, sizeof(float), 1, f);
+            enemies.push_back(e);
+        }
+        
+        for (int i = 0; i < 6; i++) {
+            fread(&claws[i], sizeof(Claw), 1, f);
+        }
+        
+        // Read appended player variables (with backward compatibility)
+        if (fread(&playerDamage, sizeof(int), 1, f) != 1) playerDamage = 1;
+        if (fread(&g_BonusSpeed, sizeof(float), 1, f) != 1) g_BonusSpeed = 0.0f;
+        if (fread(&g_PendingUpgrades, sizeof(int), 1, f) != 1) g_PendingUpgrades = 0;
+        
+        // Read appended boss state variables
+        if (fread(&bossDead, sizeof(bool), 1, f) != 1) bossDead = false;
+        if (fread(&preBossTimer, sizeof(float), 1, f) != 1) preBossTimer = 0.0f;
+        if (fread(&bossEventTimer, sizeof(float), 1, f) != 1) bossEventTimer = 0.0f;
+        if (fread(&fireballSpawnTimer, sizeof(float), 1, f) != 1) fireballSpawnTimer = 0.0f;
+        if (fread(&bossHurtTimer, sizeof(float), 1, f) != 1) bossHurtTimer = 0.0f;
+        if (fread(&bossSpawnTimer, sizeof(float), 1, f) != 1) bossSpawnTimer = 0.0f;
+        if (fread(&postBossPhase, sizeof(bool), 1, f) != 1) postBossPhase = false;
+        if (fread(&phase2BossFrame, sizeof(int), 1, f) != 1) phase2BossFrame = 0;
+        if (fread(&phase2BossAnimTimer, sizeof(float), 1, f) != 1) phase2BossAnimTimer = 0.0f;
+        
+    } catch (...) {
+        fclose(f);
+        return false;
     }
     
     fclose(f);

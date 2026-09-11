@@ -1,5 +1,40 @@
+# LoneShooter Controls
 
-# Dialogue System Colors
+- WASD : to move
+- left click : shoot
+- R : reload
+- E : interact
+- 1,2 and 3 : switch between weapons(if unlocked).
+- ~ : toggle dev console
+
+
+## Enemy types:
+
+Melee:
+
+- Grunt
+- Elite Grunt
+- Elite spear grunt
+
+Ranged:
+
+- Gunner
+- Officer
+- Marshall
+- Claw
+
+Special:
+- Gravitals
+
+Boss:
+- Spire
+
+---
+
+
+
+
+## Dialogue System Colors
 
 The following colors can be used in `.line` files with `@Color: "Name"` or `@D-Color: "Name"` tags:
 
