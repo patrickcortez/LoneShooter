@@ -787,6 +787,76 @@ void PlayMarshallHurtSound() {
     PlaySoundW(marshallHurtPath, NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
 }
 
+void PlayEnemyFireSound() {
+    static wchar_t path[MAX_PATH] = {0};
+    static int currentAlias = 0;
+    if (path[0] == 0) {
+        wchar_t exePath[MAX_PATH]; GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(exePath, L'\\'); if (lastSlash) *lastSlash = L'\0';
+        swprintf(path, MAX_PATH, L"\"%ls\\assets\\sound-effects\\gunshot-enemy.mp3\"", exePath);
+        
+        // Initialize pool
+        for (int i = 0; i < 8; i++) {
+            wchar_t cmd[512];
+            swprintf(cmd, 512, L"open %ls type mpegvideo alias enemyfire%d", path, i);
+            mciSendStringW(cmd, NULL, 0, NULL);
+            swprintf(cmd, 512, L"setaudio enemyfire%d volume to 1000", i);
+            mciSendStringW(cmd, NULL, 0, NULL);
+        }
+    }
+    
+    wchar_t playCmd[256];
+    swprintf(playCmd, 256, L"play enemyfire%d from 0", currentAlias);
+    mciSendStringW(playCmd, NULL, 0, NULL);
+    
+    currentAlias = (currentAlias + 1) % 8;
+}
+
+void PlayOfficerWhistleSound() {
+    static wchar_t path[MAX_PATH] = {0};
+    if (path[0] == 0) {
+        wchar_t exePath[MAX_PATH]; GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(exePath, L'\\'); if (lastSlash) *lastSlash = L'\0';
+        swprintf(path, MAX_PATH, L"\"%ls\\assets\\sound-effects\\officer-whistle.mp3\"", exePath);
+    }
+    wchar_t cmd[512];
+    mciSendStringW(L"close offwhistle", NULL, 0, NULL);
+    swprintf(cmd, 512, L"open %ls type mpegvideo alias offwhistle", path);
+    mciSendStringW(cmd, NULL, 0, NULL);
+    mciSendStringW(L"setaudio offwhistle volume to 1000", NULL, 0, NULL);
+    mciSendStringW(L"play offwhistle from 0", NULL, 0, NULL);
+}
+
+void PlayOfficerCommandSound() {
+    static wchar_t path[MAX_PATH] = {0};
+    if (path[0] == 0) {
+        wchar_t exePath[MAX_PATH]; GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(exePath, L'\\'); if (lastSlash) *lastSlash = L'\0';
+        swprintf(path, MAX_PATH, L"\"%ls\\assets\\sound-effects\\officer-command.wav\"", exePath);
+    }
+    wchar_t cmd[512];
+    mciSendStringW(L"close offcmd", NULL, 0, NULL);
+    swprintf(cmd, 512, L"open %ls type waveaudio alias offcmd", path);
+    mciSendStringW(cmd, NULL, 0, NULL);
+    mciSendStringW(L"setaudio offcmd volume to 1000", NULL, 0, NULL);
+    mciSendStringW(L"play offcmd from 0", NULL, 0, NULL);
+}
+
+void PlayOfficerRetreatSound() {
+    static wchar_t path[MAX_PATH] = {0};
+    if (path[0] == 0) {
+        wchar_t exePath[MAX_PATH]; GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(exePath, L'\\'); if (lastSlash) *lastSlash = L'\0';
+        swprintf(path, MAX_PATH, L"\"%ls\\assets\\sound-effects\\officer-retreat.wav\"", exePath);
+    }
+    wchar_t cmd[512];
+    mciSendStringW(L"close offret", NULL, 0, NULL);
+    swprintf(cmd, 512, L"open %ls type waveaudio alias offret", path);
+    mciSendStringW(cmd, NULL, 0, NULL);
+    mciSendStringW(L"setaudio offret volume to 1000", NULL, 0, NULL);
+    mciSendStringW(L"play offret from 0", NULL, 0, NULL);
+}
+
 void BackgroundMusic(void* arg) {
     const int E2 = 40;
     const int E3 = 52; 
@@ -1077,6 +1147,7 @@ struct Enemy {
     bool isDefectedOfficer = false;
     bool isDefectedGunner = false;
     int officerState = 0; // 0: Seek gunners, 1: Form Line, 2: Firing Volley, 3: Retreat
+    int prevOfficerState = -1;
     float officerCooldown = 0.0f;
 };
 
@@ -5025,7 +5096,7 @@ void UpdateEnemies(float deltaTime) {
                     bullets.push_back(b);
                     enemy.fireTimer = 2.0f;
                     enemy.firingTimer = 0.2f;
-                    PlayGunSound(0);
+                    PlayEnemyFireSound();
                 }
             } else {
                 if (dist > 5.0f) {
@@ -5074,7 +5145,7 @@ void UpdateEnemies(float deltaTime) {
                 bullets.push_back(b);
                 enemy.fireTimer = 1.5f;
                 enemy.firingTimer = 0.2f;
-                PlayGunSound(0);
+                PlayEnemyFireSound();
             }
 
         } else if (enemy.isOfficer) {
@@ -5098,10 +5169,13 @@ void UpdateEnemies(float deltaTime) {
                 }
             }
             
-            if (dist < 8.0f || gunners.size() < (size_t)(maxShooterSpawn * 0.2f)) {
-                enemy.officerState = 3;
-            } else {
-                enemy.officerState = 1;
+            // Don't interrupt state 2 (volley in progress) — gunners still have pending shots
+            if (enemy.officerState != 2) {
+                if (dist < 8.0f || gunners.size() < (size_t)(maxShooterSpawn * 0.2f)) {
+                    enemy.officerState = 3;
+                } else {
+                    enemy.officerState = 1;
+                }
             }
             
             if (enemy.officerState == 3) {
@@ -5153,19 +5227,50 @@ void UpdateEnemies(float deltaTime) {
                 }
                 
                 if (allReady && enemy.fireTimer <= 0) {
+                    // Begin staggered volley: assign each gunner a negative countdown
+                    // They fire sequentially 0.1s apart instead of all at once
+                    const float VOLLEY_STAGGER = 0.1f;
+                    int idx = 0;
                     for (auto* g : gunners) {
-                        float targetAngle = atan2f(player.y - g->y, player.x - g->x);
-                        EnemyBullet eb; eb.x = g->x; eb.y = g->y;
-                        eb.dirX = cosf(targetAngle); eb.dirY = sinf(targetAngle);
-                        eb.active = true; eb.isLaser = false;
-                        enemyBullets.push_back(eb);
-                        g->firingTimer = 0.2f;
+                        g->fireTimer = -(idx * VOLLEY_STAGGER); // negative = pending shot
+                        idx++;
                     }
                     enemy.fireTimer = 3.0f;
                     enemy.officerState = 2;
-                    PlayGunSound(0);
+                    // Whistle fires at the start of the volley command
+                }
+            } else if (enemy.officerState == 2) {
+                // Staggered volley in progress — tick each gunner's countdown
+                bool allFired = true;
+                for (auto* g : gunners) {
+                    if (g->fireTimer < 0.0f) {
+                        g->fireTimer += deltaTime;
+                        allFired = false;
+                        if (g->fireTimer >= 0.0f) {
+                            // This gunner's moment to fire
+                            float targetAngle = atan2f(player.y - g->y, player.x - g->x);
+                            EnemyBullet eb; eb.x = g->x; eb.y = g->y;
+                            eb.dirX = cosf(targetAngle); eb.dirY = sinf(targetAngle);
+                            eb.speed = 8.0f; eb.active = true; eb.isLaser = false;
+                            enemyBullets.push_back(eb);
+                            g->firingTimer = 0.2f;
+                            PlayEnemyFireSound(); // One crack per gunner
+                        }
+                    }
+                }
+                // Return to forming line once all shots have been fired and cooldown elapsed
+                if (allFired && enemy.fireTimer <= 0) {
+                    enemy.officerState = 1;
                 }
             }
+
+            if (enemy.officerState != enemy.prevOfficerState) {
+                if (enemy.officerState == 1 && enemy.prevOfficerState != 2) PlayOfficerCommandSound();
+                else if (enemy.officerState == 2) PlayOfficerWhistleSound();
+                else if (enemy.officerState == 3) PlayOfficerRetreatSound();
+                enemy.prevOfficerState = enemy.officerState;
+            }
+
         } else if (enemy.isShooter) {
             if (officerSpawned) {
                 if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
@@ -5241,6 +5346,7 @@ void UpdateEnemies(float deltaTime) {
                         enemyBullets.push_back(eb);
                         enemy.fireTimer = 1.5f;
                         enemy.firingTimer = 0.5f;
+                        PlayEnemyFireSound();
                     }
                 }
             } else if (dist <= 16.0f && dist > 1.0f) {
@@ -5261,6 +5367,7 @@ void UpdateEnemies(float deltaTime) {
                     
                     enemy.fireTimer = 2.0f;
                     enemy.firingTimer = 0.5f;
+                    PlayEnemyFireSound();
                 }
             } else if (dist > 16.0f) {
                 enemy.pathRecalcTimer -= deltaTime;
@@ -5428,8 +5535,11 @@ void UpdateEnemies(float deltaTime) {
                             else if (e.isShooter && !e.isDefectedGunner && !e.isDefectedOfficer) lineCount++;
                         }
                     }
-                    if (officer) {
-                        int spawnCount = lineCount / 2;
+                    if (officer && officer->officerCooldown <= 0.0f) {
+                        // Spawn only the gunners lost (4 is the full firing line), capped at 4
+                        int lost = 4 - lineCount;
+                        int spawnCount = (lost > 0) ? lost : 0;
+                        if (spawnCount > 4) spawnCount = 4; // Safety cap
                         for (int i = 0; i < spawnCount; i++) {
                             Enemy shooter;
                             shooter.x = officer->x + (rand()%200 - 100)/100.0f;
@@ -5438,6 +5548,7 @@ void UpdateEnemies(float deltaTime) {
                             shooter.isShooter = true; shooter.fireTimer = 2.0f; shooter.hasNeuralBrain = true; NeuralAI::InheritBrain(shooter.brain);
                             pendingEnemies.push_back(shooter);
                         }
+                        if (spawnCount > 0) officer->officerCooldown = 20.0f;
                     }
                 }
             }
@@ -5931,7 +6042,7 @@ eb.active = false; break; }
                 officer.isMarshall = false;
                 officer.hasNeuralBrain = true;
                 officer.officerState = 0;
-                officer.officerCooldown = 0.0f;
+                officer.officerCooldown = 20.0f; // Begin with cooldown so reinforcement can't fire immediately
                 NeuralAI::InheritBrain(officer.brain);
                 pendingEnemies.push_back(officer);
                 officerSpawned = true;
