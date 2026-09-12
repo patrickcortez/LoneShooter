@@ -9,6 +9,7 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
+#include <shlobj.h>
 #include <dbghelp.h>
 #include <olectl.h>
 #include <ole2.h>
@@ -18,7 +19,16 @@
 #include <ctime>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <algorithm>
+
+std::unordered_map<std::string, bool> g_EventCache;
+inline void TriggerEvent(const std::string& eventName, bool state = true) {
+    g_EventCache[eventName] = state;
+}
+inline bool HasEvent(const std::string& eventName) {
+    return g_EventCache[eventName];
+}
 #include <process.h>
 #include <mmsystem.h>
 #include "pathfinder.hpp"
@@ -1146,9 +1156,16 @@ struct Enemy {
     bool isOfficer = false;
     bool isDefectedOfficer = false;
     bool isDefectedGunner = false;
+    bool isParagon = false;
     int officerState = 0; // 0: Seek gunners, 1: Form Line, 2: Firing Volley, 3: Retreat
     int prevOfficerState = -1;
+    bool isAllied = false;
+    bool isEnemy = true;
     float officerCooldown = 0.0f;
+    float targetX = 0, targetY = 0;
+    bool hunting = false;
+    int targetEnemyIndex = 0;
+    int targetClawIndex = 0;
 };
 
 enum MarshallCommand { CMD_NONE, CMD_RALLY, CMD_PINCER, CMD_PHALANX };
@@ -1214,7 +1231,17 @@ struct HealingTower {
     std::vector<Particle> particles;
 };
 
-
+struct JohnSecret {
+    bool isSpawned;
+    bool naturalSpawn;
+    float angle;
+    float x, y;
+    float hopOffset;
+    float hopTimer;
+    bool isHopping;
+    int fullCirclesCompleted;
+    float prevAngle;
+};
 
 struct BushSprite {
     float x, y;
@@ -1490,19 +1517,8 @@ bool marshallHealthBarActive = false;
 int marshallHP = 0;
 int marshallMaxHP = 100;
 
-struct Paragon {
-    float x, y;
-    float speed;
-    int health;
-    bool active;
-    float hurtTimer;
-    float targetX, targetY;
-    bool hunting;
-    int targetEnemyIndex;
-    int targetClawIndex;
-};
-
-std::vector<Paragon> paragons;
+std::vector<Enemy> allies;
+std::vector<Enemy> pendingAllies;
 bool marshallKilled = false;
 bool paragonsUnlocked = false;
 float paragonMessageTimer = 0;
@@ -1578,6 +1594,10 @@ int htReadyW = 0, htReadyH = 0;
 DWORD* htParticlePixels = nullptr;
 int htParticleW = 0, htParticleH = 0;
 
+JohnSecret johnSecret;
+DWORD* johnDefaultPixels = nullptr; int johnDefaultW = 0, johnDefaultH = 0;
+DWORD* johnInteractPixels = nullptr; int johnInteractW = 0, johnInteractH = 0;
+
 // Prototypes
 void LoadModelCurrentDir(const wchar_t* filename, float x, float z);
 void Render3DScene();
@@ -1618,15 +1638,26 @@ int currentWeapon = 0;
 bool gunUpgraded = false;
 float upgradeMessageTimer = 0;
 
+void EnsureAppDataFolder(wchar_t* outPath) {
+    wchar_t appData[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appData))) {
+        swprintf(outPath, MAX_PATH, L"%ls\\LoneShooter", appData);
+        CreateDirectoryW(outPath, NULL);
+    } else {
+        // Fallback to old behavior if AppData can't be resolved
+        GetModuleFileNameW(NULL, outPath, MAX_PATH);
+        wchar_t* lastBackSlash = wcsrchr(outPath, L'\\');
+        wchar_t* lastForwardSlash = wcsrchr(outPath, L'/');
+        wchar_t* lastSlash = lastBackSlash;
+        if (lastForwardSlash && (!lastSlash || lastForwardSlash > lastSlash)) lastSlash = lastForwardSlash;
+        if (lastSlash) *lastSlash = L'\0';
+    }
+}
+
 void GetHighScorePath(wchar_t* path) {
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(NULL, exePath, MAX_PATH);
-    wchar_t* lastBackSlash = wcsrchr(exePath, L'\\');
-    wchar_t* lastForwardSlash = wcsrchr(exePath, L'/');
-    wchar_t* lastSlash = lastBackSlash;
-    if (lastForwardSlash && (!lastSlash || lastForwardSlash > lastSlash)) lastSlash = lastForwardSlash;
-    if (lastSlash) *lastSlash = L'\0';
-    swprintf(path, MAX_PATH, L"%ls\\highscore.dat", exePath);
+    wchar_t basePath[MAX_PATH];
+    EnsureAppDataFolder(basePath);
+    swprintf(path, MAX_PATH, L"%ls\\highscore.dat", basePath);
 }
 
 void LoadHighScore() {
@@ -1650,14 +1681,9 @@ void SaveHighScore() {
 }
 
 void GetProgPath(wchar_t* path) {
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(NULL, exePath, MAX_PATH);
-    wchar_t* lastBackSlash = wcsrchr(exePath, L'\\');
-    wchar_t* lastForwardSlash = wcsrchr(exePath, L'/');
-    wchar_t* lastSlash = lastBackSlash;
-    if (lastForwardSlash && (!lastSlash || lastForwardSlash > lastSlash)) lastSlash = lastForwardSlash;
-    if (lastSlash) *lastSlash = L'\0';
-    swprintf(path, MAX_PATH, L"%ls\\prog.dat", exePath);
+    wchar_t basePath[MAX_PATH];
+    EnsureAppDataFolder(basePath);
+    swprintf(path, MAX_PATH, L"%ls\\prog.dat", basePath);
 }
 
 void LoadGraves() {
@@ -2765,6 +2791,18 @@ swprintf(path, MAX_PATH, L"%ls\\assets\\grass.bmp", exePath);
         if (errorPixels) { htParticlePixels = errorPixels; htParticleW = errorW; htParticleH = errorH; } 
     }
 
+    swprintf(path, MAX_PATH, L"%ls\\assets\\secret\\john-default.bmp", exePath);
+    johnDefaultPixels = LoadBMPPixels(path, &johnDefaultW, &johnDefaultH);
+    if (!johnDefaultPixels) {
+        missingAssets.push_back(L"secret\\john-default.bmp");
+    }
+
+    swprintf(path, MAX_PATH, L"%ls\\assets\\secret\\john-interact.bmp", exePath);
+    johnInteractPixels = LoadBMPPixels(path, &johnInteractW, &johnInteractH);
+    if (!johnInteractPixels) {
+        missingAssets.push_back(L"secret\\john-interact.bmp");
+    }
+
     swprintf(loadStatus, 256, L"G:%ls S:%ls A:%ls H:%ls D:%ls F:%ls M:%ls C:%ls BR:%ls", gunPixels?L"OK":L"X", spirePixels?L"OK":L"X", spireAwakePixels?L"OK":L"X", spireHurtPixels?L"OK":L"X", spireDeathPixels?L"OK":L"X", fireballPixels?L"OK":L"X", medkitPixels?L"OK":L"X", clawDormantPixels?L"OK":L"X", bigRockPixels[0]?L"OK":L"X");
 
     
@@ -2929,6 +2967,24 @@ void GenerateWorld() {
     healingTower.pulseFrame = 0;
     healingTower.particles.clear();
     
+    // Initialize John
+    johnSecret.isSpawned = false;
+    johnSecret.naturalSpawn = false;
+    johnSecret.angle = 0.0f;
+    johnSecret.x = healingTower.x + 2.0f;
+    johnSecret.y = healingTower.y;
+    johnSecret.hopOffset = 0.0f;
+    johnSecret.hopTimer = 0.0f;
+    johnSecret.isHopping = false;
+    johnSecret.fullCirclesCompleted = 0;
+    johnSecret.prevAngle = 0.0f;
+    if (rand() % 100 == 0) { // 1% chance
+        johnSecret.isSpawned = true;
+        johnSecret.naturalSpawn = true;
+        player.maxHealth *= 2;
+        player.health = player.maxHealth;
+    }
+    
     PopulateSpatialGrids();
 }
 
@@ -2982,6 +3038,37 @@ void PopulateSpatialGrids() {
             bigRockGrid[gx][gy].push_back((int)i);
         }
     }
+}
+
+void UpdateJohn(float deltaTime) {
+    if (!johnSecret.isSpawned) return;
+    
+    if (johnSecret.isHopping) {
+        johnSecret.hopTimer += deltaTime * 5.0f;
+        if (johnSecret.hopTimer >= 3.14159f) {
+            johnSecret.isHopping = false;
+            johnSecret.hopTimer = 0.0f;
+            johnSecret.hopOffset = 0.0f;
+        } else {
+            johnSecret.hopOffset = sinf(johnSecret.hopTimer) * 0.5f;
+        }
+    } else {
+        johnSecret.hopOffset = 0.0f;
+        johnSecret.angle += deltaTime * 0.5f;
+        
+        if (healingTower.state == TOWER_ACTIVE) {
+            if (johnSecret.angle - johnSecret.prevAngle >= 6.28318f) {
+                johnSecret.prevAngle = johnSecret.angle;
+                johnSecret.isHopping = true;
+                johnSecret.hopTimer = 0.0f;
+            }
+        } else {
+            johnSecret.prevAngle = johnSecret.angle;
+        }
+    }
+    
+    johnSecret.x = healingTower.x + cosf(johnSecret.angle) * 2.0f;
+    johnSecret.y = healingTower.y + sinf(johnSecret.angle) * 2.0f;
 }
 
 void UpdateHealingTower(float deltaTime) {
@@ -4186,7 +4273,17 @@ void RenderSprites() {
         }
     }
 
-    
+    if (johnSecret.isSpawned) {
+        float dx = johnSecret.x - player.x;
+        float dy = johnSecret.y - player.y;
+        float distSq = dx*dx + dy*dy;
+        if (distSq < 1225.0f) {
+            float dist = sqrtf(distSq);
+            int variant = (healingTower.state == TOWER_ACTIVE) ? 1 : 0;
+            g_allSprites.push_back({johnSecret.x, johnSecret.y, dist, 30, 0.5f, variant, false, johnSecret.hopOffset, false});
+        }
+    }
+
     for (int cx = playerCellX - searchRadius; cx <= playerCellX + searchRadius; cx++) {
         for (int cy = playerCellY - searchRadius; cy <= playerCellY + searchRadius; cy++) {
             if (cx < 0 || cx >= 17 || cy < 0 || cy >= 17) continue;
@@ -4218,12 +4315,8 @@ void RenderSprites() {
             float dx = enemy.x - player.x;
             float dy = enemy.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            if (enemy.isDefectedOfficer) {
-                g_allSprites.push_back({enemy.x, enemy.y, dist, 25, 1.0f, enemy.officerState, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
-            } else if (enemy.isOfficer) {
+            if (enemy.isOfficer) {
                 g_allSprites.push_back({enemy.x, enemy.y, dist, 24, 1.0f, enemy.officerState, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
-            } else if (enemy.isDefectedGunner) {
-                g_allSprites.push_back({enemy.x, enemy.y, dist, 26, 1.0f, 0, (enemy.hurtTimer > 0), 0.0f, enemy.firingTimer > 0});
             } else if (enemy.isSpearGuy) {
                 g_allSprites.push_back({enemy.x, enemy.y, dist, 23, 1.0f, enemy.spearState, (enemy.hurtTimer > 0), 0.0f, false});
             } else if (enemy.isMarshall) {
@@ -4248,12 +4341,18 @@ void RenderSprites() {
         }
     }
     
-    for (auto& p : paragons) {
+    for (auto& p : allies) {
         if (p.active) {
             float dx = p.x - player.x;
             float dy = p.y - player.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            g_allSprites.push_back({p.x, p.y, dist, 10, 1.0f, 0, (p.hurtTimer > 0), 0.0f, false});
+            if (p.isDefectedOfficer) {
+                g_allSprites.push_back({p.x, p.y, dist, 25, 1.0f, p.officerState, (p.hurtTimer > 0), 0.0f, p.firingTimer > 0});
+            } else if (p.isDefectedGunner) {
+                g_allSprites.push_back({p.x, p.y, dist, 26, 1.0f, 0, (p.hurtTimer > 0), 0.0f, p.firingTimer > 0});
+            } else if (p.isParagon) {
+                g_allSprites.push_back({p.x, p.y, dist, 10, 1.0f, 0, (p.hurtTimer > 0), 0.0f, false});
+            }
         }
     }
     
@@ -4540,6 +4639,11 @@ void RenderSprites() {
              else if (sp.isFiring) { pix = defectedGunnerFiringPixels; w = defectedGunnerFiringW; h = defectedGunnerFiringH; }
              if (!pix && sp.isHurt) { pix = defectedGunnerPixels; w = defectedGunnerW; h = defectedGunnerH; }
              if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
+        } else if (sp.type == 30) { // John
+             DWORD* pix = (sp.variant == 1) ? johnInteractPixels : johnDefaultPixels;
+             int w = (sp.variant == 1) ? johnInteractW : johnDefaultW;
+             int h = (sp.variant == 1) ? johnInteractH : johnDefaultH;
+             if (pix) RenderSprite(pix, w, h, sp.x, sp.y, sp.dist, sp.scale, sp.height);
         }
     }
 }
@@ -4693,8 +4797,16 @@ void UpdateEnemies(float deltaTime) {
              
              if (enemy.state == 2) { // Retreat & Heal (PHALANX)
                  activeCommand = CMD_PHALANX;
-                 float dx = enemy.x - player.x; 
-                 float dy = enemy.y - player.y;
+                 float targetX = player.x; float targetY = player.y;
+                 float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
+                 for (auto& e : allies) {
+                     if (e.active && e.isAllied) {
+                         float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
+                         if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
+                     }
+                 }
+                 float dx = enemy.x - targetX; 
+                 float dy = enemy.y - targetY;
                  float dist = sqrtf(dx*dx + dy*dy);
                  
                  float retreatSpeed = 7.5f;
@@ -4805,7 +4917,7 @@ void UpdateEnemies(float deltaTime) {
                          m.active = true;
                          m.health = 4;
                          m.speed = 4.0f + ((rand()%10)/10.0f);
-                         if (worldMap[(int)m.x][(int)m.y] == 0) enemies.push_back(m);
+                         if (worldMap[(int)m.x][(int)m.y] == 0) pendingEnemies.push_back(m);
                      }
                      for(int i=0; i<5; i++) {
                          Enemy s;
@@ -4830,15 +4942,23 @@ void UpdateEnemies(float deltaTime) {
                          s.isShooter = true;
                          s.health = 3;
                          s.speed = 3.0f;
-                         if (worldMap[(int)s.x][(int)s.y] == 0) enemies.push_back(s);
+                         if (worldMap[(int)s.x][(int)s.y] == 0) pendingEnemies.push_back(s);
                      }
                      enemy.state = 1; // Charge after rally
                  }
                  continue;
              } else { // Chase (State 1) - PINCER
                  activeCommand = CMD_PINCER;
-                 float dx = player.x - enemy.x;
-                 float dy = player.y - enemy.y;
+                 float targetX = player.x; float targetY = player.y;
+                 float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
+                 for (auto& e : allies) {
+                     if (e.active && e.isAllied) {
+                         float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
+                         if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
+                     }
+                 }
+                 float dx = targetX - enemy.x;
+                 float dy = targetY - enemy.y;
                  float dist = sqrtf(dx*dx + dy*dy);
                  
                  if (dist < 3.0f && enemy.attackTimer <= 0) {
@@ -4944,7 +5064,7 @@ void UpdateEnemies(float deltaTime) {
                              s.isShooter = false; s.isMarshall = false;
                              s.tacticState = 0; s.flankDir = 0; s.tacticTimer = 0;
                              s.path.clear(); s.pathIndex = 0; s.pathRecalcTimer = 0;
-                             enemies.push_back(s);
+                             pendingEnemies.push_back(s);
                          }
                      }
                  }
@@ -4952,21 +5072,22 @@ void UpdateEnemies(float deltaTime) {
              }
          }
 
-        float dx = player.x - enemy.x;
-        float dy = player.y - enemy.y;
-        float dist = sqrtf(dx*dx + dy*dy);
-        
         float targetX = player.x; float targetY = player.y;
         float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
         Enemy* spearTarget = nullptr;
-        for (auto& e : enemies) {
-            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+        for (auto& e : allies) {
+            if (e.active && e.isAllied) {
                 float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
                 if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; spearTarget = &e; }
             }
         }
-        float pdx = targetX - enemy.x; float pdy = targetY - enemy.y;
-        float pdist = sqrtf(pdx*pdx + pdy*pdy);
+        
+        float dx = targetX - enemy.x;
+        float dy = targetY - enemy.y;
+        float dist = sqrtf(dx*dx + dy*dy);
+        
+        float pdx = dx; float pdy = dy;
+        float pdist = dist;
 
         if (enemy.isSpearGuy) {
             float dx = pdx; float dy = pdy; float dist = pdist;
@@ -5047,7 +5168,13 @@ void UpdateEnemies(float deltaTime) {
                         if (spearTarget) {
                             spearTarget->health -= 15;
                             spearTarget->hurtTimer = 0.5f;
-                            if (spearTarget->health <= 0) spearTarget->active = false;
+                            if (spearTarget->health <= 0) {
+                                spearTarget->active = false;
+                                if (spearTarget->isDefectedOfficer) {
+                                    
+                                    
+                                }
+                            }
                         } else {
                             if (!godMode) player.health -= 15; // Spear damage
                             PlayPlayerHurtSound();
@@ -5091,189 +5218,6 @@ void UpdateEnemies(float deltaTime) {
             }
             if (enemy.attackTimer > 0) enemy.attackTimer -= deltaTime;
 
-        } else if (enemy.isDefectedGunner) {
-            if (defectedOfficerActive) {
-                if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
-                continue;
-            }
-            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
-            float closestDist = 9999.0f;
-            Enemy* target = nullptr;
-            for (auto& e : enemies) {
-                if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
-                float edx = e.x - enemy.x; float edy = e.y - enemy.y;
-                float d = sqrtf(edx*edx + edy*edy);
-                if (d < closestDist) { closestDist = d; target = &e; }
-            }
-            if (target && closestDist < 15.0f) {
-                float edx = target->x - enemy.x; float edy = target->y - enemy.y;
-                if (closestDist > 6.0f) {
-                    enemy.x += (edx/closestDist)*enemy.speed*deltaTime;
-                    enemy.y += (edy/closestDist)*enemy.speed*deltaTime;
-                }
-                if (closestDist <= 12.0f && enemy.fireTimer <= 0) {
-                    float targetAngle = atan2f(edy, edx);
-                    Bullet b; b.x = enemy.x; b.y = enemy.y;
-                    b.dirX = cosf(targetAngle); b.dirY = sinf(targetAngle);
-                    b.active = true; b.speed = 10.0f; b.damage = 15;
-                    b.startX = enemy.x; b.startY = enemy.y; b.maxRange = 25.0f;
-                    bullets.push_back(b);
-                    enemy.fireTimer = 2.0f;
-                    enemy.firingTimer = 0.2f;
-                    PlayEnemyFireSound();
-                }
-            } else {
-                if (dist > 5.0f) {
-                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
-                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
-                }
-            }
-            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
-
-        } else if (enemy.isDefectedOfficer) {
-            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
-            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
-            if (enemy.officerCooldown > 0) enemy.officerCooldown -= deltaTime;
-
-            // Heal player when nearby
-            if (dist < 8.0f) {
-                if (enemy.healTimer <= 0 && player.health < player.maxHealth) {
-                    player.health += 1;
-                    enemy.healTimer = 1.0f;
-                } else if (enemy.healTimer > 0) {
-                    enemy.healTimer -= deltaTime;
-                }
-            }
-
-            // Collect defected gunners as squad
-            std::vector<Enemy*> defectedGunners;
-            for (auto& e : enemies) {
-                if (e.active && e.isDefectedGunner) defectedGunners.push_back(&e);
-            }
-
-            // Find nearest hostile target
-            float closestEnemyDist = 9999.0f;
-            Enemy* hostileTarget = nullptr;
-            for (auto& e : enemies) {
-                if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
-                float edx = e.x - enemy.x; float edy = e.y - enemy.y;
-                float d = sqrtf(edx*edx + edy*edy);
-                if (d < closestEnemyDist) { closestEnemyDist = d; hostileTarget = &e; }
-            }
-
-            // State machine: 0=follow player, 1=form line, 2=volley, 3=retreat/summon
-            if (enemy.officerState != 2) {
-                if (dist < 5.0f || defectedGunners.size() < (size_t)(maxShooterSpawn * 0.15f)) {
-                    enemy.officerState = 3; // Retreat and summon
-                } else {
-                    enemy.officerState = 1; // Form line
-                }
-            }
-
-            if (enemy.officerState == 3) {
-                // Retreat toward player but keep a buffer distance
-                if (dist > 6.0f) {
-                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
-                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
-                } else if (dist < 4.0f) {
-                    enemy.x -= (dx/dist)*enemy.speed*deltaTime;
-                    enemy.y -= (dy/dist)*enemy.speed*deltaTime;
-                }
-                // Summon defected gunners when squad is small
-                if (enemy.officerCooldown <= 0 && defectedGunners.size() < 4) {
-                    int needed = 4 - (int)defectedGunners.size();
-                    for (int i = 0; i < needed; i++) {
-                        Enemy dg;
-                        dg.x = enemy.x + (rand()%200 - 100)/100.0f;
-                        dg.y = enemy.y + (rand()%200 - 100)/100.0f;
-                        dg.active = true; dg.speed = 1.2f; dg.spriteIndex = 0; dg.health = 2; dg.maxHealth = 2;
-                        dg.isShooter = true; dg.isDefectedGunner = true;
-                        dg.fireTimer = 2.0f; dg.firingTimer = 0; dg.hurtTimer = 0;
-                        dg.hasNeuralBrain = true;
-                        NeuralAI::InheritBrain(dg.brain);
-                        pendingEnemies.push_back(dg);
-                    }
-                    enemy.officerCooldown = 20.0f;
-                }
-            } else if (enemy.officerState == 1) {
-                // Hold a flanking position relative to nearest hostile
-                if (dist > 10.0f) {
-                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
-                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
-                } else if (dist < 8.0f) {
-                    enemy.x -= (dx/dist)*enemy.speed*deltaTime;
-                    enemy.y -= (dy/dist)*enemy.speed*deltaTime;
-                }
-
-                // Arrange defected gunners in a firing line perpendicular to the enemy
-                if (hostileTarget) {
-                    float aTgt = atan2f(hostileTarget->y - enemy.y, hostileTarget->x - enemy.x);
-                    float lineAngle = aTgt + 3.14159f/2.0f;
-                    int gi = 0; int gc = (int)defectedGunners.size(); bool allReady = true;
-                    for (auto* g : defectedGunners) {
-                        float offset = (gi - (gc-1)/2.0f) * 0.8f;
-                        float tx = enemy.x + cosf(lineAngle) * offset;
-                        float ty = enemy.y + sinf(lineAngle) * offset;
-                        float gdx = tx - g->x; float gdy = ty - g->y;
-                        float gdist = sqrtf(gdx*gdx + gdy*gdy);
-                        if (gdist > 0.5f) {
-                            g->x += (gdx/gdist)*g->speed*deltaTime;
-                            g->y += (gdy/gdist)*g->speed*deltaTime;
-                            allReady = false;
-                        }
-                        g->fireTimer = 2.0f; // suppress individual firing while forming
-                        gi++;
-                    }
-                    // Trigger volley when line is set
-                    if (allReady && enemy.fireTimer <= 0) {
-                        const float VOLLEY_STAGGER = 0.1f;
-                        int idx = 1;
-                        for (auto* g : defectedGunners) {
-                            g->fireTimer = -(idx * VOLLEY_STAGGER);
-                            idx++;
-                        }
-                        enemy.fireTimer = 3.0f;
-                        enemy.officerState = 2;
-                    }
-                }
-            } else if (enemy.officerState == 2) {
-                // Staggered volley: each defected gunner fires at the nearest hostile in sequence
-                bool allFired = true;
-                for (auto* g : defectedGunners) {
-                    if (g->fireTimer < 0.0f) {
-                        g->fireTimer += deltaTime;
-                        allFired = false;
-                        if (g->fireTimer >= 0.0f) {
-                            // Find closest hostile for this gunner
-                            Enemy* gTarget = nullptr; float gClosest = 9999.0f;
-                            for (auto& e : enemies) {
-                                if (!e.active || e.isDefectedGunner || e.isDefectedOfficer) continue;
-                                float gdx = e.x - g->x; float gdy = e.y - g->y;
-                                float gd = sqrtf(gdx*gdx + gdy*gdy);
-                                if (gd < gClosest) { gClosest = gd; gTarget = &e; }
-                            }
-                            if (gTarget) {
-                                float shotAngle = atan2f(gTarget->y - g->y, gTarget->x - g->x);
-                                Bullet eb; eb.x = g->x; eb.y = g->y;
-                                eb.dirX = cosf(shotAngle); eb.dirY = sinf(shotAngle);
-                                eb.active = true; eb.speed = 10.0f; eb.damage = 1;
-                                eb.startX = g->x; eb.startY = g->y; eb.maxRange = 25.0f;
-                                bullets.push_back(eb);
-                                g->firingTimer = 0.2f;
-                                PlayEnemyFireSound();
-                            }
-                        }
-                    }
-                }
-                if (allFired && enemy.fireTimer <= 0) {
-                    enemy.officerState = 1;
-                }
-            }
-
-            if (enemy.officerState != enemy.prevOfficerState) {
-                enemy.prevOfficerState = enemy.officerState;
-            }
-
         } else if (enemy.isOfficer) {
             if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
             if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
@@ -5281,13 +5225,13 @@ void UpdateEnemies(float deltaTime) {
             
             std::vector<Enemy*> gunners;
             for (auto& e : enemies) {
-                if (e.active && e.isShooter && !e.isOfficer && !e.isDefectedGunner && !e.isDefectedOfficer) {
+                if (e.active && e.isShooter && !e.isOfficer && e.isEnemy) {
                     gunners.push_back(&e);
                 }
             }
             
             for (auto& e : enemies) {
-                if (e.active && !e.isShooter && !e.isMarshall && !e.isOfficer && !e.isDefectedOfficer && !e.isDefectedGunner) {
+                if (e.active && !e.isShooter && !e.isMarshall && !e.isOfficer && e.isEnemy) {
                     float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
                     if (d < 8.0f) {
                         e.speed = 1.4f;
@@ -5297,7 +5241,7 @@ void UpdateEnemies(float deltaTime) {
             
             // Don't interrupt state 2 (volley in progress) — gunners still have pending shots
             if (enemy.officerState != 2) {
-                if (dist < 8.0f || gunners.size() < (size_t)(maxShooterSpawn * 0.2f)) {
+                if (dist < 8.0f || gunners.size() <= (size_t)(maxShooterSpawn * 0.5f)) {
                     enemy.officerState = 3;
                 } else {
                     enemy.officerState = 1;
@@ -5309,6 +5253,18 @@ void UpdateEnemies(float deltaTime) {
                 float moveSpeed = enemy.speed * 1.2f;
                 enemy.x += (rx/dist)*moveSpeed*deltaTime;
                 enemy.y += (ry/dist)*moveSpeed*deltaTime;
+                
+                // Command grunts to retreat away from player as well
+                for (auto* g : gunners) {
+                    float gDist = sqrtf((player.x - g->x)*(player.x - g->x) + (player.y - g->y)*(player.y - g->y));
+                    if (gDist > 0.1f) {
+                        float grx = g->x - player.x;
+                        float gry = g->y - player.y;
+                        float gSpeed = g->speed * 1.2f;
+                        g->x += (grx/gDist) * gSpeed * deltaTime;
+                        g->y += (gry/gDist) * gSpeed * deltaTime;
+                    }
+                }
                 
                 if (enemy.officerCooldown <= 0 && gunners.size() < 4) {
                     int lost = 4 - gunners.size();
@@ -5376,8 +5332,8 @@ void UpdateEnemies(float deltaTime) {
                             // This gunner's moment to fire
                             float targetX = player.x; float targetY = player.y;
                             float closestDist = sqrtf((player.x - g->x)*(player.x - g->x) + (player.y - g->y)*(player.y - g->y));
-                            for (auto& e : enemies) {
-                                if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                            for (auto& e : allies) {
+                                if (e.active) {
                                     float d = sqrtf((e.x - g->x)*(e.x - g->x) + (e.y - g->y)*(e.y - g->y));
                                     if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
                                 }
@@ -5471,8 +5427,8 @@ void UpdateEnemies(float deltaTime) {
                         eb.y = enemy.y;
                         float targetX = player.x; float targetY = player.y;
                         float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
-                        for (auto& e : enemies) {
-                            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                        for (auto& e : allies) {
+                            if (e.active) {
                                 float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
                                 if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
                             }
@@ -5499,8 +5455,8 @@ void UpdateEnemies(float deltaTime) {
                     eb.y = enemy.y;
                     float targetX = player.x; float targetY = player.y;
                     float closestDist = sqrtf((player.x - enemy.x)*(player.x - enemy.x) + (player.y - enemy.y)*(player.y - enemy.y));
-                    for (auto& e : enemies) {
-                        if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                    for (auto& e : allies) {
+                        if (e.active) {
                             float d = sqrtf((e.x - enemy.x)*(e.x - enemy.x) + (e.y - enemy.y)*(e.y - enemy.y));
                             if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
                         }
@@ -5682,7 +5638,7 @@ void UpdateEnemies(float deltaTime) {
                     for (auto& e : enemies) {
                         if (e.active) {
                             if (e.isOfficer) officer = &e;
-                            else if (e.isShooter && !e.isDefectedGunner && !e.isDefectedOfficer) lineCount++;
+                            else if (e.isShooter && e.isEnemy) lineCount++;
                         }
                     }
                     if (officer && officer->officerCooldown <= 0.0f) {
@@ -5976,11 +5932,11 @@ void UpdateEnemies(float deltaTime) {
             
             if (enemy.attackTimer > 0) enemy.attackTimer -= deltaTime;
             
-            if (enemy.spriteIndex == 4 && !enemy.isSpearGuy && !enemy.isOfficer && !enemy.isDefectedOfficer && !enemy.isDefectedGunner && !enemy.isMarshall) {
+            if (enemy.spriteIndex == 4 && !enemy.isSpearGuy && !enemy.isOfficer && enemy.isEnemy && !enemy.isMarshall) {
                 int nearbyCount = 0;
                 for (auto& other : enemies) {
                     if (&other == &enemy || !other.active) continue;
-                    if (!other.isShooter && !other.isMarshall && !other.isOfficer && !other.isDefectedOfficer && !other.isDefectedGunner) {
+                    if (!other.isShooter && !other.isMarshall && !other.isOfficer && other.isEnemy) {
                         float d = sqrtf((enemy.x - other.x)*(enemy.x - other.x) + (enemy.y - other.y)*(enemy.y - other.y));
                         if (d < 8.0f) nearbyCount++;
                     }
@@ -6002,7 +5958,7 @@ void UpdateEnemies(float deltaTime) {
             float attackRange = 2.0f + (enemy.hasNeuralBrain ? neuralAggression * 0.5f : 0);
             if (dist < attackRange && enemy.attackTimer <= 0) {
                 if (!godMode) {
-                    if (enemy.spriteIndex == 4 && !enemy.isSpearGuy && !enemy.isOfficer && !enemy.isDefectedOfficer && !enemy.isDefectedGunner) {
+                    if (enemy.spriteIndex == 4 && !enemy.isSpearGuy && !enemy.isOfficer && enemy.isEnemy) {
                         player.health -= 10;
                         // Apply knockback
                         playerKnockbackX = -(dx / dist) * 8.0f; // 2-4 tiles worth of velocity
@@ -6019,11 +5975,11 @@ void UpdateEnemies(float deltaTime) {
                 playerHurtTimer = 0.3f;
                 PlayPlayerHurtSound();
                 if (player.health <= 0) {
-                    score = 0;
+                    // score retained on continue
                     graves.push_back({player.x, player.y});
                     SaveGraves();
                     player.health = player.maxHealth;
-                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
+                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; if (johnSecret.isSpawned && johnSecret.naturalSpawn) { player.maxHealth *= 2; player.health = player.maxHealth; } g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                     player.y = 32.0f;
                     gunUpgraded = false;
                     currentWeapon = 0;
@@ -6069,14 +6025,21 @@ eb.active = false; break; }
         if (!eb.active) continue;
         
         bool hitDefected = false;
-        for (auto& e : enemies) {
-            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+        for (auto& e : allies) {
+            if (e.active) {
                 float edx = e.x - eb.x;
                 float edy = e.y - eb.y;
                 if (sqrtf(edx*edx + edy*edy) < 0.5f) {
                     int dmg = eb.isLaser ? 10 : 5;
                     e.health -= dmg;
                     e.hurtTimer = 0.2f;
+                    if (e.health <= 0) {
+                        e.active = false;
+                        if (e.isDefectedOfficer) {
+                            
+                            
+                        }
+                    }
                     eb.active = false;
                     hitDefected = true;
                     break;
@@ -6105,6 +6068,8 @@ eb.active = false; break; }
     // Prevent spawning and clear enemies during pre-boss phase
     if (preBossPhase) {
         enemies.clear();
+        officerSpawned = false;
+        
     } else if (!bossActive) {
         // Progressive spawn cap increase (pre-boss only)
         spawnCapTimer -= deltaTime;
@@ -6188,13 +6153,15 @@ eb.active = false; break; }
             }
             
             // Officer spawn logic
-            if (!officerSpawned && !defectedOfficerActive && shooterCount >= 4) {
+            if (!officerSpawned && shooterCount >= 4) {
                 Enemy officer;
                 do {
-                    officer.x = 5.0f + (rand() % ((MAP_WIDTH - 10) * 10)) / 10.0f;
-                    officer.y = 5.0f + (rand() % ((MAP_HEIGHT - 10) * 10)) / 10.0f;
-                } while (worldMap[(int)officer.x][(int)officer.y] != 0 || 
-                         sqrtf((officer.x - player.x)*(officer.x - player.x) + (officer.y - player.y)*(officer.y - player.y)) < 15.0f);
+                    float angle = (float)(rand() % 360) * 3.14159f / 180.0f;
+                    officer.x = player.x + cosf(angle) * 10.0f;
+                    officer.y = player.y + sinf(angle) * 10.0f;
+                    if (officer.x < 2.0f) officer.x = 2.0f; if (officer.x >= MAP_WIDTH - 2.0f) officer.x = MAP_WIDTH - 2.1f;
+                    if (officer.y < 2.0f) officer.y = 2.0f; if (officer.y >= MAP_HEIGHT - 2.0f) officer.y = MAP_HEIGHT - 2.1f;
+                } while (worldMap[(int)officer.x][(int)officer.y] != 0);
                 officer.active = true;
                 officer.speed = 1.2f;
                 officer.distance = 0;
@@ -6227,8 +6194,9 @@ eb.active = false; break; }
         }
         
         if (preBossTimer <= 0) {
-            preBossPhase = false;
+            preBossPhase = false; TriggerEvent("pre_boss_phase", false);
             bossActive = true;
+            TriggerEvent("boss_active", true);
             bossEventTimer = 3.0f;
             
             for(int i=0; i<6; i++) {
@@ -6352,8 +6320,8 @@ eb.active = false; break; }
                         // Fire laser projectile at player
                         float targetX = player.x; float targetY = player.y;
                         float closestDist = sqrtf((player.x - c.x)*(player.x - c.x) + (player.y - c.y)*(player.y - c.y));
-                        for (auto& e : enemies) {
-                            if (e.active && (e.isDefectedGunner || e.isDefectedOfficer)) {
+                        for (auto& e : allies) {
+                            if (e.active) {
                                 float d = sqrtf((e.x - c.x)*(e.x - c.x) + (e.y - c.y)*(e.y - c.y));
                                 if (d < closestDist) { closestDist = d; targetX = e.x; targetY = e.y; }
                             }
@@ -6471,12 +6439,12 @@ eb.active = false; break; }
                                 playerHurtTimer = 0.3f;
                                 PlayPlayerHurtSound();
                                 if(player.health <= 0) {
-                                    score = 0;
+                                    // score retained on continue
                                     player.health = player.maxHealth;
-                                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
+                                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; if (johnSecret.isSpawned && johnSecret.naturalSpawn) { player.maxHealth *= 2; player.health = player.maxHealth; } g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                                     player.y = 32.0f;
-                                    bossActive = false;
-                                    preBossPhase = false;
+                                    bossActive = false; TriggerEvent("boss_active", false);
+                                    preBossPhase = false; TriggerEvent("pre_boss_phase", false);
                                     bossHealth = 1500;
                                     enemies.clear();
                                     fireballs.clear();
@@ -6602,15 +6570,15 @@ eb.active = false; break; }
                             playerHurtTimer = 0.3f;
                             PlayPlayerHurtSound();
                             if(player.health <= 0) {
-                                score = 0;
+                                // score retained on continue
                                 graves.push_back({player.x, player.y});
                                 SaveGraves();
                                 player.health = player.maxHealth;
-                                player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
+                                player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; if (johnSecret.isSpawned && johnSecret.naturalSpawn) { player.maxHealth *= 2; player.health = player.maxHealth; } g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                                 player.y = 32.0f;
                                 
-                                bossActive = false;
-                                preBossPhase = false;
+                                bossActive = false; TriggerEvent("boss_active", false);
+                                preBossPhase = false; TriggerEvent("pre_boss_phase", false);
                                 bossHealth = 200;
                                 enemies.clear();
                                 fireballs.clear();
@@ -6686,11 +6654,11 @@ fb.active = false; break; }
             fb.active = false;
             
             if (player.health <= 0) {
-                score = 0;
+                // score retained on continue
                 graves.push_back({player.x, player.y});
                 SaveGraves();
                 player.health = player.maxHealth;
-                player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
+                player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; if (johnSecret.isSpawned && johnSecret.naturalSpawn) { player.maxHealth *= 2; player.health = player.maxHealth; } g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                 player.y = 32.0f;
                 gunUpgraded = false;
                 currentWeapon = 0;
@@ -6699,8 +6667,8 @@ fb.active = false; break; }
                 ammo = 8;
                 
                 if (bossActive) {
-                    bossActive = false;
-                    preBossPhase = false;
+                    bossActive = false; TriggerEvent("boss_active", false);
+                    preBossPhase = false; TriggerEvent("pre_boss_phase", false);
                     bossHealth = 1500;
                     phase2Active = false;
                     enragedMode = false;
@@ -6795,6 +6763,11 @@ fb.active = false; break; }
         enemies.push_back(pe);
     }
     pendingEnemies.clear();
+    
+    for (auto& pa : pendingAllies) {
+        allies.push_back(pa);
+    }
+    pendingAllies.clear();
 }
 
 void UpdateGun(float deltaTime) {
@@ -7013,7 +6986,6 @@ void UpdateBullets(float deltaTime) {
             if (!hit) {
                  for (auto& e : enemies) {
                      if (!e.active) continue;
-                     if (e.isDefectedOfficer || e.isDefectedGunner) continue; // Don't trigger on friendly defected units
                      float edx = r.x - e.x;
                      float edy = r.y - e.y;
                      if (sqrtf(edx*edx + edy*edy) < 1.0f) { hit = true; break; }
@@ -7081,7 +7053,6 @@ void UpdateBullets(float deltaTime) {
                 
                 for (auto& e : enemies) {
                     if (!e.active) continue;
-                    if (e.isDefectedOfficer || e.isDefectedGunner) continue; // Don't damage friendly defected units
                     float dX = r.x - e.x;
                     float dY = r.y - e.y;
                     float dist = sqrtf(dX*dX + dY*dY);
@@ -7103,7 +7074,7 @@ void UpdateBullets(float deltaTime) {
                             GivePlayerXP(GetEnemyXP(e));
                             PlayScoreSound();
                             if (score > highScore) { highScore = score; SaveHighScore(); }
-                            if (score >= 1000 && !bossActive && !preBossPhase) { preBossPhase = true; preBossTimer = 30.0f; }
+                            if (score >= 1000 && !bossActive && !preBossPhase) { preBossPhase = true; TriggerEvent("pre_boss_phase", true); preBossTimer = 30.0f; }
                         }
                     }
                 }
@@ -7117,7 +7088,7 @@ void UpdateBullets(float deltaTime) {
                             bossHurtTimer = 2.0f;
                             PlayScoreSound();
                             if (bossHealth <= 0) {
-                                bossActive = false;
+                                bossActive = false; TriggerEvent("boss_active", false);
                                 bossDead = true;
                                 postBossPhase = true;
                                 musicRunning = false;
@@ -7250,7 +7221,7 @@ void UpdateBullets(float deltaTime) {
         
         for (auto& enemy : enemies) {
             if (!enemy.active) continue;
-            if (enemy.isDefectedOfficer || enemy.isDefectedGunner) continue; // Don't hit friendly defected units
+            if (!enemy.isEnemy) continue; // Don't hit friendly defected units
             float edx = b.x - enemy.x;
             float edy = b.y - enemy.y;
             if (sqrtf(edx*edx + edy*edy) < 0.4f) {
@@ -7276,10 +7247,7 @@ void UpdateBullets(float deltaTime) {
                     if (enemy.isOfficer) {
                         officerSpawned = false;
                     }
-                    if (enemy.isDefectedOfficer) {
-                        defectedOfficerActive = false; // Clear so enemy officer can respawn and defected timer re-arms cleanly
-                        defectedRespawnTimer = 10.0f;
-                    }
+
                     if (enemy.isMarshall) {
                         marshallKilled = true;
                         bazookaUnlocked = true;
@@ -7305,6 +7273,7 @@ void UpdateBullets(float deltaTime) {
                     // Check Score for Boss Trigger
                     if (score >= 1000 && !bossActive && !preBossPhase) {
                         preBossPhase = true;
+                        TriggerEvent("pre_boss_phase", true);
                         preBossTimer = 30.0f;
                         
                         // Despawn all enemies
@@ -7348,7 +7317,8 @@ void UpdateBullets(float deltaTime) {
                             
                             pendingEnemies.push_back(marshall);
                             marshallSpawned = true;
-                            defectedRespawnTimer = 5.0f; // Trigger initial officer defection shortly after Marshall spawns
+                            TriggerEvent("marshall_spawned", true);
+                             // Trigger initial officer defection immediately after Marshall spawns
                             
                             // Spawn 10 minions to follow him
                             for (int k=0; k<10; k++) {
@@ -7403,7 +7373,7 @@ void UpdateBullets(float deltaTime) {
                     hitHit = true;
                     
                     if (bossHealth <= 0) {
-                        bossActive = false;
+                        bossActive = false; TriggerEvent("boss_active", false);
                         bossDead = true;
                         postBossPhase = true;
                         musicRunning = false;
@@ -7479,6 +7449,8 @@ void UpdateBullets(float deltaTime) {
     
     if (shouldClearEnemies) {
         enemies.clear();
+        officerSpawned = false;
+        
         // fireballs.clear(); // Maybe? Pre-boss clears everything.
         // Logic in UpdateEnemies says: enemies.clear().
         // Here we just clear enemies.
@@ -7489,16 +7461,20 @@ void UpdateBullets(float deltaTime) {
 
 int GetAliveParagonCount() {
     int count = 0;
-    for (auto& p : paragons) { if (p.active) count++; }
+    for (auto& p : allies) {
+        if (!p.isParagon) continue; if (p.active) count++; }
     return count;
 }
 
-void UpdateParagons(float deltaTime) {
+void UpdateAllies(float deltaTime) {
     if (!paragonsUnlocked && score >= 200 && marshallKilled) {
         paragonsUnlocked = true;
         paragonMessageTimer = 3.0f;
         for (int i = 0; i < 2; i++) {
-            Paragon p;
+            Enemy p;
+            p.isParagon = true;
+            p.isAllied = true;
+            p.isEnemy = false;
             float angle = (float)(rand() % 360) * 3.14159f / 180.0f;
             p.x = player.x + cosf(angle) * 1.5f;
             p.y = player.y + sinf(angle) * 1.5f;
@@ -7510,17 +7486,202 @@ void UpdateParagons(float deltaTime) {
             p.hunting = false;
             p.targetEnemyIndex = -1;
             p.targetClawIndex = -1;
-            paragons.push_back(p);
+            pendingAllies.push_back(p);
         }
     }
     
     if (paragonMessageTimer > 0) paragonMessageTimer -= deltaTime;
     if (paragonSummonCooldown > 0) paragonSummonCooldown -= deltaTime;
     
-    for (auto& p : paragons) {
+    for (auto& p : allies) {
         if (!p.active) continue;
         
-        if (p.hurtTimer > 0) p.hurtTimer -= deltaTime;
+        auto& enemy = p;
+        float dx = player.x - p.x;
+        float dy = player.y - p.y;
+        float dist = sqrtf(dx*dx + dy*dy);
+        
+        if (enemy.isDefectedGunner) {
+            if (defectedOfficerActive) {
+                if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+                continue;
+            }
+            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+            float closestDist = 9999.0f;
+            Enemy* target = nullptr;
+            for (auto& e : enemies) {
+                if (!e.active || !e.isEnemy) continue;
+                float edx = e.x - enemy.x; float edy = e.y - enemy.y;
+                float d = sqrtf(edx*edx + edy*edy);
+                if (d < closestDist) { closestDist = d; target = &e; }
+            }
+            if (target && closestDist < 15.0f) {
+                float edx = target->x - enemy.x; float edy = target->y - enemy.y;
+                if (closestDist > 6.0f) {
+                    enemy.x += (edx/closestDist)*enemy.speed*deltaTime;
+                    enemy.y += (edy/closestDist)*enemy.speed*deltaTime;
+                }
+                if (closestDist <= 12.0f && enemy.fireTimer <= 0) {
+                    float targetAngle = atan2f(edy, edx);
+                    Bullet b; b.x = enemy.x; b.y = enemy.y;
+                    b.dirX = cosf(targetAngle); b.dirY = sinf(targetAngle);
+                    b.active = true; b.speed = 10.0f; b.damage = 15;
+                    b.startX = enemy.x; b.startY = enemy.y; b.maxRange = 25.0f;
+                    bullets.push_back(b);
+                    enemy.fireTimer = 2.0f;
+                    enemy.firingTimer = 0.2f;
+                    PlayEnemyFireSound();
+                }
+            } else {
+                if (dist > 5.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
+                }
+            }
+            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
+
+        } else if (enemy.isDefectedOfficer) {
+            if (enemy.firingTimer > 0) enemy.firingTimer -= deltaTime;
+            if (enemy.fireTimer > 0) enemy.fireTimer -= deltaTime;
+            if (enemy.officerCooldown > 0) enemy.officerCooldown -= deltaTime;
+
+            if (dist < 8.0f) {
+                if (enemy.healTimer <= 0 && player.health < player.maxHealth) {
+                    player.health += 1;
+                    enemy.healTimer = 1.0f;
+                } else if (enemy.healTimer > 0) {
+                    enemy.healTimer -= deltaTime;
+                }
+            }
+
+            std::vector<Enemy*> defectedGunners;
+            for (auto& e : allies) {
+                if (e.active && e.isDefectedGunner) defectedGunners.push_back(&e);
+            }
+
+            float closestEnemyDist = 9999.0f;
+            Enemy* hostileTarget = nullptr;
+            for (auto& e : enemies) {
+                if (!e.active || !e.isEnemy) continue;
+                float edx = e.x - enemy.x; float edy = e.y - enemy.y;
+                float d = sqrtf(edx*edx + edy*edy);
+                if (d < closestEnemyDist) { closestEnemyDist = d; hostileTarget = &e; }
+            }
+
+            if (enemy.officerState != 2) {
+                if (defectedGunners.size() <= 2) {
+                    enemy.officerState = 3; // Squad depleted -> fall back / regroup
+                } else {
+                    enemy.officerState = 1; // Squad replenished -> engage
+                }
+            }
+
+            if (enemy.officerState == 3) {
+                if (dist > 5.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*1.2f*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*1.2f*deltaTime;
+                }
+
+                for (auto* g : defectedGunners) {
+                    float gdx = player.x - g->x;
+                    float gdy = player.y - g->y;
+                    float gDist = sqrtf(gdx*gdx + gdy*gdy);
+                    float gSpeed = g->speed * 1.2f;
+                    if (gDist > 5.0f) {
+                        g->x += (gdx/gDist) * gSpeed * deltaTime;
+                        g->y += (gdy/gDist) * gSpeed * deltaTime;
+                    }
+                }
+                
+                if (enemy.officerCooldown <= 0 && defectedGunners.size() < 4) {
+                    int needed = 4 - (int)defectedGunners.size();
+                    for (int i = 0; i < needed; i++) {
+                        Enemy dg;
+                        dg.x = enemy.x + (rand()%200 - 100)/100.0f;
+                        dg.y = enemy.y + (rand()%200 - 100)/100.0f;
+                        dg.active = true; dg.speed = 1.2f; dg.spriteIndex = 0; dg.health = 2; dg.maxHealth = 2;
+                        dg.isShooter = true; dg.isDefectedGunner = true;
+                        dg.isAllied = true; dg.isEnemy = false;
+                        dg.fireTimer = 2.0f; dg.firingTimer = 0; dg.hurtTimer = 0;
+                        dg.hasNeuralBrain = true;
+                        NeuralAI::InheritBrain(dg.brain);
+                        pendingAllies.push_back(dg);
+                    }
+                    enemy.officerCooldown = 20.0f;
+                }
+            } else if (enemy.officerState == 1) {
+                if (dist > 5.0f) {
+                    enemy.x += (dx/dist)*enemy.speed*deltaTime;
+                    enemy.y += (dy/dist)*enemy.speed*deltaTime;
+                }
+
+                if (hostileTarget) {
+                    float aTgt = atan2f(hostileTarget->y - enemy.y, hostileTarget->x - enemy.x);
+                    float lineAngle = aTgt + 3.14159f/2.0f;
+                    int gi = 0; int gc = (int)defectedGunners.size(); bool allReady = true;
+                    for (auto* g : defectedGunners) {
+                        float offset = (gi - (gc-1)/2.0f) * 0.8f;
+                        float tx = enemy.x + cosf(lineAngle) * offset;
+                        float ty = enemy.y + sinf(lineAngle) * offset;
+                        float gdx = tx - g->x; float gdy = ty - g->y;
+                        float gdist = sqrtf(gdx*gdx + gdy*gdy);
+                        if (gdist > 1.2f) {
+                            g->x += (gdx/gdist)*g->speed*2.0f*deltaTime;
+                            g->y += (gdy/gdist)*g->speed*2.0f*deltaTime;
+                            allReady = false;
+                        }
+                        g->fireTimer = 2.0f;
+                        gi++;
+                    }
+                    if (allReady && enemy.fireTimer <= 0) {
+                        const float VOLLEY_STAGGER = 0.05f;
+                        int idx = 1;
+                        for (auto* g : defectedGunners) {
+                            g->fireTimer = -(idx * VOLLEY_STAGGER);
+                            idx++;
+                        }
+                        enemy.fireTimer = 1.5f;
+                        enemy.officerState = 2;
+                    }
+                }
+            } else if (enemy.officerState == 2) {
+                bool allFired = true;
+                for (auto* g : defectedGunners) {
+                    if (g->fireTimer < 0.0f) {
+                        g->fireTimer += deltaTime;
+                        allFired = false;
+                        if (g->fireTimer >= 0.0f) {
+                            Enemy* gTarget = nullptr; float gClosest = 9999.0f;
+                            for (auto& e : enemies) {
+                                if (!e.active || !e.isEnemy) continue;
+                                float gdx = e.x - g->x; float gdy = e.y - g->y;
+                                float gd = sqrtf(gdx*gdx + gdy*gdy);
+                                if (gd < gClosest) { gClosest = gd; gTarget = &e; }
+                            }
+                            if (gTarget) {
+                                float shotAngle = atan2f(gTarget->y - g->y, gTarget->x - g->x);
+                                Bullet eb; eb.x = g->x; eb.y = g->y;
+                                eb.dirX = cosf(shotAngle); eb.dirY = sinf(shotAngle);
+                                eb.active = true; eb.speed = 10.0f; eb.damage = 1;
+                                eb.startX = g->x; eb.startY = g->y; eb.maxRange = 25.0f;
+                                bullets.push_back(eb);
+                                g->firingTimer = 0.2f;
+                                PlayEnemyFireSound();
+                            }
+                        }
+                    }
+                }
+                if (allFired && enemy.fireTimer <= 0) {
+                    enemy.officerState = 1;
+                }
+            }
+
+            if (enemy.officerState != enemy.prevOfficerState) {
+                enemy.prevOfficerState = enemy.officerState;
+            }
+            
+        } else if (enemy.isParagon) {
+            if (p.hurtTimer > 0) p.hurtTimer -= deltaTime;
         
         float distToPlayer = sqrtf((p.x - player.x)*(p.x - player.x) + (p.y - player.y)*(p.y - player.y));
         
@@ -7528,7 +7689,6 @@ void UpdateParagons(float deltaTime) {
         float nearestEnemyDist = 6.0f;
         for (size_t i = 0; i < enemies.size(); i++) {
             if (!enemies[i].active) continue;
-            if (enemies[i].isDefectedOfficer || enemies[i].isDefectedGunner) continue; // Don't target friendly defected units
             float dx = enemies[i].x - p.x;
             float dy = enemies[i].y - p.y;
             float dist = sqrtf(dx*dx + dy*dy);
@@ -7635,7 +7795,8 @@ void UpdateParagons(float deltaTime) {
             float dist = sqrtf(dx*dx + dy*dy);
             
             float repelX = 0, repelY = 0;
-            for (auto& other : paragons) {
+            for (auto& other : allies) {
+                if (!other.isParagon) continue;
                 if (&other == &p || !other.active) continue;
                 float ox = p.x - other.x;
                 float oy = p.y - other.y;
@@ -7662,6 +7823,7 @@ void UpdateParagons(float deltaTime) {
                 if (enemies[nearestEnemyIdx].health <= 0) {
                     enemies[nearestEnemyIdx].active = false;
                     if (enemies[nearestEnemyIdx].isMarshall) marshallKilled = true;
+                    if (enemies[nearestEnemyIdx].isOfficer) officerSpawned = false;
                     score++;
                     GivePlayerXP(GetEnemyXP(enemies[nearestEnemyIdx]));
                     PlayScoreSound();
@@ -7676,7 +7838,8 @@ void UpdateParagons(float deltaTime) {
             float dist = sqrtf(dx*dx + dy*dy);
             
             float repelX = 0, repelY = 0;
-            for (auto& other : paragons) {
+            for (auto& other : allies) {
+                if (!other.isParagon) continue;
                 if (&other == &p || !other.active) continue;
                 float ox = p.x - other.x;
                 float oy = p.y - other.y;
@@ -7720,7 +7883,8 @@ void UpdateParagons(float deltaTime) {
                 }
             } else {
                 float repelX = 0, repelY = 0;
-                for (auto& other : paragons) {
+                for (auto& other : allies) {
+                if (!other.isParagon) continue;
                     if (&other == &p || !other.active) continue;
                     float ox = p.x - other.x;
                     float oy = p.y - other.y;
@@ -7739,6 +7903,7 @@ void UpdateParagons(float deltaTime) {
                 }
             }
         }
+        }
         
         if (p.x < 1.5f) p.x = 1.5f; if (p.x >= MAP_WIDTH - 1.5f) p.x = (float)(MAP_WIDTH - 2);
         if (p.y < 1.5f) p.y = 1.5f; if (p.y >= MAP_HEIGHT - 1.5f) p.y = (float)(MAP_HEIGHT - 2);
@@ -7746,15 +7911,18 @@ void UpdateParagons(float deltaTime) {
     
     for (auto& eb : enemyBullets) {
         if (!eb.active) continue;
-        for (auto& p : paragons) {
+        for (auto& p : allies) {
+
             if (!p.active) continue;
             float dx = eb.x - p.x;
             float dy = eb.y - p.y;
             if (sqrtf(dx*dx + dy*dy) < 1.0f) {
                 eb.active = false;
-                p.health -= (eb.isLaser ? 10 : 5);
-                p.hurtTimer = 1.0f;
-                if (p.health <= 0) p.active = false;
+                if (p.hurtTimer <= 0.0f) {
+                    p.health -= (eb.isLaser ? 10 : 5);
+                    p.hurtTimer = 1.0f;
+                    if (p.health <= 0) p.active = false;
+                }
                 break;
             }
         }
@@ -7762,15 +7930,18 @@ void UpdateParagons(float deltaTime) {
     
     for (auto& fb : fireballs) {
         if (!fb.active) continue;
-        for (auto& p : paragons) {
+        for (auto& p : allies) {
+
             if (!p.active) continue;
             float dx = fb.x - p.x;
             float dy = fb.y - p.y;
             if (sqrtf(dx*dx + dy*dy) < 0.5f) {
                 fb.active = false;
-                p.health -= 10;
-                p.hurtTimer = 1.0f;
-                if (p.health <= 0) p.active = false;
+                if (p.hurtTimer <= 0.0f) {
+                    p.health -= 10;
+                    p.hurtTimer = 1.0f;
+                    if (p.health <= 0) p.active = false;
+                }
                 break;
             }
         }
@@ -7778,12 +7949,13 @@ void UpdateParagons(float deltaTime) {
     
     for (auto& e : enemies) {
         if (!e.active || e.isShooter || e.isMarshall) continue;
-        for (auto& p : paragons) {
+        for (auto& p : allies) {
+
             if (!p.active) continue;
             float dx = p.x - e.x;
             float dy = p.y - e.y;
             float dist = sqrtf(dx*dx + dy*dy);
-            if (dist < 1.0f) {
+            if (dist < 1.0f && p.hurtTimer <= 0.0f) {
                 p.health -= 1;
                 p.hurtTimer = 1.0f;
                 if (p.health <= 0) p.active = false;
@@ -7900,6 +8072,7 @@ void DrawMinimapToBuffer() {
     
     DWORD enemyColor = MakeColor(255, 0, 0);
     DWORD smartColor = MakeColor(200, 50, 200);
+    DWORD allyColor = MakeColor(50, 200, 50); // Light green for allies
     for (auto& enemy : enemies) {
         if (enemy.active) {
             int ex = offsetX + (int)(enemy.x * cellSize);
@@ -7911,6 +8084,22 @@ void DrawMinimapToBuffer() {
                     int sy = ey + dy;
                     if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
                         renderBuffer[sy * SCREEN_WIDTH + sx] = col;
+                    }
+                }
+            }
+        }
+    }
+    
+    for (auto& ally : allies) {
+        if (ally.active) {
+            int ex = offsetX + (int)(ally.x * cellSize);
+            int ey = offsetY + (int)(ally.y * cellSize);
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    int sx = ex + dx;
+                    int sy = ey + dy;
+                    if (sx >= offsetX && sx < offsetX + mapDrawWidth && sy >= offsetY && sy < offsetY + mapDrawHeight) {
+                        renderBuffer[sy * SCREEN_WIDTH + sx] = allyColor;
                     }
                 }
             }
@@ -8087,6 +8276,18 @@ void DrawMinimap(HDC hdc) {
         }
     }
     
+    SelectObject(hdc, hBrushPlayer);
+    for (auto& ally : allies) {
+        if (ally.active) {
+            int ex = offsetX + (int)(ally.x * cellSize);
+            int ey = offsetY + (int)(ally.y * cellSize);
+            
+            if (ex >= offsetX && ex < offsetX + mapDrawWidth && ey >= offsetY && ey < offsetY + mapDrawHeight) {
+                Ellipse(hdc, ex - 3, ey - 3, ex + 3, ey + 3);
+            }
+        }
+    }
+    
     SelectObject(hdc, hBrushMagenta);
     for (int i = 0; i < 6; i++) {
         int cx = offsetX + (int)(claws[i].x * cellSize);
@@ -8128,9 +8329,9 @@ void DrawMinimap(HDC hdc) {
     // Deserialize global reset
     if (pendingGameReset) {
         pendingGameReset = false;
-        score = 0;
+        // score retained on continue
         player.health = player.maxHealth;
-        player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
+        player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; if (johnSecret.isSpawned && johnSecret.naturalSpawn) { player.maxHealth *= 2; player.health = player.maxHealth; } g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
         player.y = 32.0f;
         
         // Reset weapon ammo to defaults
@@ -8138,8 +8339,8 @@ void DrawMinimap(HDC hdc) {
         weaponMaxAmmo[0] = 8; weaponMaxAmmo[1] = 5; weaponMaxAmmo[2] = 4;
         
         // Reset Boss & Game State
-        bossActive = false;
-        preBossPhase = false;
+        bossActive = false; TriggerEvent("boss_active", false);
+        preBossPhase = false; TriggerEvent("pre_boss_phase", false);
         preBossTimer = 0;
         preBossPulseTimer = 0;
         bossHealth = 1500;
@@ -8153,7 +8354,7 @@ void DrawMinimap(HDC hdc) {
         marshallSpawned = false; 
         marshallKilled = false;
         officerSpawned = false;
-        defectedOfficerActive = false;
+        
         defectedRespawnTimer = 0.0f;
         militiaBarActive = false;
         SpawnEnemies();
@@ -8162,6 +8363,64 @@ void DrawMinimap(HDC hdc) {
     // Restore original objects
     SelectObject(hdc, origPen);
     SelectObject(hdc, origBrush);
+}
+
+void ManageAlliedOfficer(float deltaTime) {
+    if (!HasEvent("marshall_spawned") || HasEvent("pre_boss_phase") || HasEvent("boss_active")) {
+        return; 
+    }
+
+    int alliedOfficerCount = 0;
+    for (const auto& e : allies) {
+        if (e.active && e.isDefectedOfficer) {
+            alliedOfficerCount++;
+        }
+    }
+    for (const auto& e : pendingAllies) {
+        if (e.active && e.isDefectedOfficer) {
+            alliedOfficerCount++;
+        }
+    }
+
+    defectedOfficerActive = (alliedOfficerCount > 0);
+
+    if (alliedOfficerCount < 1) {
+        if (defectedRespawnTimer > 0) {
+            defectedRespawnTimer -= deltaTime;
+        } else {
+            Enemy defected;
+            do {
+                float angle = (float)(rand() % 360) * 3.14159f / 180.0f;
+                defected.x = player.x + cosf(angle) * 3.0f;
+                defected.y = player.y + sinf(angle) * 3.0f;
+                if (defected.x < 2.0f) defected.x = 2.0f; if (defected.x >= MAP_WIDTH - 2.0f) defected.x = MAP_WIDTH - 2.1f;
+                if (defected.y < 2.0f) defected.y = 2.0f; if (defected.y >= MAP_HEIGHT - 2.0f) defected.y = MAP_HEIGHT - 2.1f;
+            } while (worldMap[(int)defected.x][(int)defected.y] != 0);
+            
+            defected.active = true;
+            defected.speed = 1.2f;
+            defected.distance = 0;
+            defected.spriteIndex = 0;
+            defected.health = 4;
+            defected.maxHealth = 4;
+            defected.hurtTimer = 0;
+            defected.isShooter = true;
+            defected.isOfficer = false;
+            defected.isDefectedOfficer = true;
+            defected.isAllied = true; defected.isEnemy = false;
+            defected.fireTimer = 2.0f;
+            defected.firingTimer = 0;
+            defected.isMarshall = false;
+            defected.hasNeuralBrain = true;
+            defected.officerState = 0;
+            defected.officerCooldown = 0.0f;
+            NeuralAI::InheritBrain(defected.brain);
+            pendingAllies.push_back(defected);
+            
+            defectedOfficerActive = true;
+            defectedRespawnTimer = 5.0f;
+        }
+    }
 }
 
 void UpdatePlayer(float deltaTime) {
@@ -9272,6 +9531,8 @@ void SaveGame() {
             fwrite(&e.speed, sizeof(float), 1, f);
         }
         
+
+        
         for (int i = 0; i < 6; i++) {
             fwrite(&claws[i], sizeof(Claw), 1, f);
         }
@@ -9291,6 +9552,39 @@ void SaveGame() {
         fwrite(&postBossPhase, sizeof(bool), 1, f);
         fwrite(&phase2BossFrame, sizeof(int), 1, f);
         fwrite(&phase2BossAnimTimer, sizeof(float), 1, f);
+        
+        int allyCount = allies.size();
+        fwrite(&allyCount, sizeof(int), 1, f);
+        for (auto& e : allies) {
+            fwrite(&e.x, sizeof(float), 1, f);
+            fwrite(&e.y, sizeof(float), 1, f);
+            fwrite(&e.active, sizeof(bool), 1, f);
+            fwrite(&e.spriteIndex, sizeof(int), 1, f);
+            fwrite(&e.health, sizeof(int), 1, f);
+            fwrite(&e.maxHealth, sizeof(int), 1, f);
+            fwrite(&e.isShooter, sizeof(bool), 1, f);
+            fwrite(&e.isMarshall, sizeof(bool), 1, f);
+            fwrite(&e.state, sizeof(int), 1, f);
+            fwrite(&e.tacticState, sizeof(int), 1, f);
+            fwrite(&e.flankDir, sizeof(int), 1, f);
+            fwrite(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
+            fwrite(&e.hasNeuralBrain, sizeof(bool), 1, f);
+            fwrite(&e.dodgeDir, sizeof(int), 1, f);
+            fwrite(&e.isPhalanx, sizeof(bool), 1, f);
+            fwrite(&e.isSpearGuy, sizeof(bool), 1, f);
+            fwrite(&e.spearState, sizeof(int), 1, f);
+            fwrite(&e.isOfficer, sizeof(bool), 1, f);
+            fwrite(&e.isDefectedOfficer, sizeof(bool), 1, f);
+            fwrite(&e.isDefectedGunner, sizeof(bool), 1, f);
+            fwrite(&e.officerState, sizeof(int), 1, f);
+            fwrite(&e.speed, sizeof(float), 1, f);
+            fwrite(&e.isParagon, sizeof(bool), 1, f);
+            fwrite(&e.targetX, sizeof(float), 1, f);
+            fwrite(&e.targetY, sizeof(float), 1, f);
+            fwrite(&e.hunting, sizeof(bool), 1, f);
+            fwrite(&e.targetEnemyIndex, sizeof(int), 1, f);
+            fwrite(&e.targetClawIndex, sizeof(int), 1, f);
+        }
         
     } catch (...) {
         // Handle unexpected errors during save
@@ -9369,6 +9663,43 @@ bool LoadGame() {
         if (fread(&postBossPhase, sizeof(bool), 1, f) != 1) postBossPhase = false;
         if (fread(&phase2BossFrame, sizeof(int), 1, f) != 1) phase2BossFrame = 0;
         if (fread(&phase2BossAnimTimer, sizeof(float), 1, f) != 1) phase2BossAnimTimer = 0.0f;
+        
+        int allyCount = 0;
+        if (fread(&allyCount, sizeof(int), 1, f) == 1) {
+            allies.clear();
+            for (int i = 0; i < allyCount; i++) {
+                Enemy e;
+                fread(&e.x, sizeof(float), 1, f);
+                fread(&e.y, sizeof(float), 1, f);
+                fread(&e.active, sizeof(bool), 1, f);
+                fread(&e.spriteIndex, sizeof(int), 1, f);
+                fread(&e.health, sizeof(int), 1, f);
+                fread(&e.maxHealth, sizeof(int), 1, f);
+                fread(&e.isShooter, sizeof(bool), 1, f);
+                fread(&e.isMarshall, sizeof(bool), 1, f);
+                fread(&e.state, sizeof(int), 1, f);
+                fread(&e.tacticState, sizeof(int), 1, f);
+                fread(&e.flankDir, sizeof(int), 1, f);
+                fread(&e.brain, sizeof(NeuralAI::NeuralNet), 1, f);
+                fread(&e.hasNeuralBrain, sizeof(bool), 1, f);
+                fread(&e.dodgeDir, sizeof(int), 1, f);
+                fread(&e.isPhalanx, sizeof(bool), 1, f);
+                fread(&e.isSpearGuy, sizeof(bool), 1, f);
+                fread(&e.spearState, sizeof(int), 1, f);
+                fread(&e.isOfficer, sizeof(bool), 1, f);
+                fread(&e.isDefectedOfficer, sizeof(bool), 1, f);
+                fread(&e.isDefectedGunner, sizeof(bool), 1, f);
+                fread(&e.officerState, sizeof(int), 1, f);
+                fread(&e.speed, sizeof(float), 1, f);
+                fread(&e.isParagon, sizeof(bool), 1, f);
+                fread(&e.targetX, sizeof(float), 1, f);
+                fread(&e.targetY, sizeof(float), 1, f);
+                fread(&e.hunting, sizeof(bool), 1, f);
+                fread(&e.targetEnemyIndex, sizeof(int), 1, f);
+                fread(&e.targetClawIndex, sizeof(int), 1, f);
+                allies.push_back(e);
+            }
+        }
         
     } catch (...) {
         fclose(f);
@@ -9491,8 +9822,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         consoleBuffer = L"";
                     } else if (consoleBuffer == L"skip") {
                         bossDead = true;
-                        bossActive = false;
-                        preBossPhase = false;
+                        bossActive = false; TriggerEvent("boss_active", false);
+                        preBossPhase = false; TriggerEvent("pre_boss_phase", false);
                         phase2Active = false;
                         forceFieldActive = false;
                         activeLaserClaw = -1;
@@ -9548,8 +9879,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         g.animFrame = 0;
                         gravitals.push_back(g);
                         consoleBuffer = L"";
+                    } else if (consoleBuffer == L"spawn officer") {
+                        TriggerEvent("marshall_spawned", true);
+                        defectedRespawnTimer = 0.0f; // Force immediate spawn
+                    } else if (consoleBuffer == L"spawn john") {
+                        johnSecret.isSpawned = true;
+                        johnSecret.naturalSpawn = false;
+                        johnSecret.x = healingTower.x + 2.0f;
+                        johnSecret.y = healingTower.y;
+                        johnSecret.angle = 0.0f;
+                        consoleBuffer = L"";
                     } else if (consoleBuffer == L"help") {
-                        wcscpy(consoleError, L"Cmds: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode true/false, spec on/off, skip, unlockall, spawn gravital, exit");
+                        wcscpy(consoleError, L"Cmds: score=N, stat on/off, reset cam, view-range on/off, player.dmg=N, player.gmode true/false, spec on/off, skip, unlockall, spawn gravital, spawn officer, spawn john, exit");
                         consoleBuffer = L"";
                     } else {
                         wcscpy(consoleError, L"Unknown command");
@@ -9614,6 +9955,27 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             
+            if (wParam == 'F' && !consoleActive && !victoryScreen) {
+                if (paragonsUnlocked && GetAliveParagonCount() < 8 && paragonSummonCooldown <= 0) {
+                    Enemy p;
+            p.isParagon = true;
+            p.isAllied = true;
+            p.isEnemy = false;
+                    p.x = player.x;
+                    p.y = player.y;
+                    p.speed = 4.5f;
+                    p.health = 10;
+                    p.active = true;
+                    p.hurtTimer = 0;
+                    p.targetX = 0; p.targetY = 0;
+                    p.hunting = false;
+                    p.targetEnemyIndex = -1;
+                    p.targetClawIndex = -1;
+                    p.isAllied = true;
+                    pendingAllies.push_back(p);
+                    paragonSummonCooldown = 3.0f;
+                }
+            }
             if (wParam == 'E' && gateDialogueActive && !consoleActive) {
                 if (playerDialogueController.IsActive() && !playerDialogueController.IsShowingOptions()) {
                     playerDialogueController.AdvanceLine();
@@ -9707,14 +10069,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (mx >= playAgainBtn.left && mx <= playAgainBtn.right && my >= playAgainBtn.top && my <= playAgainBtn.bottom) {
                     victoryScreen = false;
                     bossDead = false;
-                    bossActive = false;
-                    preBossPhase = false;
+                    bossActive = false; TriggerEvent("boss_active", false);
+                    preBossPhase = false; TriggerEvent("pre_boss_phase", false);
                     bossHealth = 200;
                     phase2Active = false;
                     enragedMode = false;
-                    score = 0;
+                    // score retained on continue
                     player.health = player.maxHealth;
-                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
+                    player.level = 1; player.xp = 0; player.xpToNextLevel = 100; player.maxHealth = 100; if (johnSecret.isSpawned && johnSecret.naturalSpawn) { player.maxHealth *= 2; player.health = player.maxHealth; } g_BonusSpeed = 0.0f; g_PendingUpgrades = 0; g_LevelUpWindowOpen = false; player.x = 10.0f;
                     player.y = 32.0f;
                     player.angle = 0.0f;
                     // Reset weapon ammo to defaults
@@ -9742,22 +10104,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         case WM_RBUTTONDOWN: {
-            if (consoleActive || victoryScreen) return 0;
-            if (paragonsUnlocked && GetAliveParagonCount() < 8 && paragonSummonCooldown <= 0) {
-                Paragon p;
-                p.x = player.x;
-                p.y = player.y;
-                p.speed = 4.5f;
-                p.health = 10;
-                p.active = true;
-                p.hurtTimer = 0;
-                p.targetX = 0; p.targetY = 0;
-                p.hunting = false;
-                p.targetEnemyIndex = -1;
-                p.targetClawIndex = -1;
-                paragons.push_back(p);
-                paragonSummonCooldown = 3.0f;
-            }
+            // Right click logic (if any)
             return 0;
         }
         case WM_MOUSEMOVE: {
@@ -9892,7 +10239,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     bullets.reserve(32);
     fireballs.reserve(32);
     enemyBullets.reserve(64);
-    paragons.reserve(16);
+    allies.reserve(16);
     g_allSprites.reserve(2048);
     
     WNDCLASSEXW wc = {};
@@ -9970,33 +10317,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         float deltaTime = (float)elapsed;
         
         if (!spectatorMode) {
-            if (defectedRespawnTimer > 0) {
-                defectedRespawnTimer -= deltaTime;
-                if (defectedRespawnTimer <= 0 && marshallSpawned) {
-                    Enemy defected;
-                    defected.x = player.x + 2.0f;
-                    defected.y = player.y + 2.0f;
-                    defected.active = true;
-                    defected.speed = 1.2f;
-                    defected.distance = 0;
-                    defected.spriteIndex = 0;
-                    defected.health = 4;
-                    defected.maxHealth = 4;
-                    defected.hurtTimer = 0;
-                    defected.isShooter = true;
-                    defected.isOfficer = false;
-                    defected.isDefectedOfficer = true;
-                    defected.fireTimer = 2.0f;
-                    defected.firingTimer = 0;
-                    defected.isMarshall = false;
-                    defected.hasNeuralBrain = true;
-                    defected.officerState = 0;
-                    defected.officerCooldown = 0.0f;
-                    NeuralAI::InheritBrain(defected.brain);
-                    pendingEnemies.push_back(defected);
-                    defectedOfficerActive = true;
-                }
-            }
+            ManageAlliedOfficer(deltaTime);
             if (scoreTimer > 0) scoreTimer -= deltaTime;
             if (screenShakeTimer > 0) screenShakeTimer -= deltaTime;
             if (errorTimer > 0) errorTimer -= deltaTime;
@@ -10025,13 +10346,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (!g_LevelUpWindowOpen && !g_PauseMenuOpen) {
             UpdatePlayer(deltaTime);
             UpdateHealingTower(deltaTime);
+            UpdateJohn(deltaTime);
             
             if (!spectatorMode) {
                 UpdateEnemies(deltaTime);
                 UpdateClouds(deltaTime);
                 UpdateGun(deltaTime);
                 UpdateBullets(deltaTime);
-                UpdateParagons(deltaTime);
+                UpdateAllies(deltaTime);
             }
         }
         
